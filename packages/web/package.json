@@ -1,0 +1,23 @@
+{
+  "name": "@geoatlas/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@geoatlas/adapter-core": "workspace:*",
+    "maplibre-gl": "^5.13.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "vite": "^7.1.12",
+    "@types/geojson": "^7946.0.16"
+  }
+}
