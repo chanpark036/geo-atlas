@@ -1,16 +1,10 @@
 import { batchSchema, type AdapterManifest, type Catalog, type DataAdapter, type SourcePacket } from '@geoatlas/adapter-core';
 
-// Intentionally approximate, synthetic paths. Not MTA track geometry or live locations.
-const spine: [number, number][] = [
-  [-73.9819,40.7681], [-73.9854,40.7590], [-73.9904,40.7505], [-73.9990,40.7410],
-  [-74.0031,40.7325], [-74.0085,40.7217], [-74.0093,40.7131], [-74.0140,40.7075],
-];
-const names = ['Columbus Circle','50 Street','Penn Station','23 Street','West 4 Street','Canal Street','Chambers Street','World Trade Center'];
-export const demoCatalog: Catalog = { routes: [
-  { id: 'A', name: 'A · Manhattan local demo', color: '#7cb4ff', coordinates: spine, stops: names.map((name, pathIndex) => ({ id: `a-${pathIndex}`, name, pathIndex })) },
-  { id: 'C', name: 'C · West side demo', color: '#b19bfa', coordinates: spine.map(([x,y]) => [x - .0012,y]), stops: names.map((name, pathIndex) => ({ id: `c-${pathIndex}`, name, pathIndex })) },
-  { id: 'E', name: 'E · Crosstown demo', color: '#78dbc0', coordinates: [[-73.9668,40.7572],[-73.9762,40.7604],...spine.slice(1)], stops: ['Lexington Avenue','5 Avenue',...names.slice(1)].map((name, pathIndex) => ({ id: `e-${pathIndex}`, name, pathIndex })) },
-] };
+import { catalogSchema } from '@geoatlas/adapter-core';
+import manhattan from './data/manhattan.json' with { type: 'json' };
+
+// Official static GTFS subset; trains and their schedules remain entirely synthetic.
+export const demoCatalog: Catalog = catalogSchema.parse(manhattan);
 const decode = (packet: SourcePacket) => [batchSchema.parse(JSON.parse(typeof packet.payload === 'string' ? packet.payload : new TextDecoder('utf-8', { fatal: true }).decode(packet.payload)))];
 export const transitAdapter: DataAdapter = {
   manifest: {
@@ -31,12 +25,13 @@ export function transitPayload(routeId: string, now = Date.now()): string {
   const route = demoCatalog.routes.find(r => r.id === routeId)!;
   const step = Math.floor(now / 6_000), observedAt = new Date(step * 6_000).toISOString();
   const entities = [0,1].map(offset => {
-    const cycle = (step + offset * 5) % ((route.coordinates.length - 1) * 2);
-    const pathIndex = cycle < route.coordinates.length ? cycle : 2 * (route.coordinates.length - 1) - cycle;
+    const cycle = (step + offset * 5) % ((route.stops.length - 1) * 2);
+    const stopIndex = cycle < route.stops.length ? cycle : 2 * (route.stops.length - 1) - cycle;
+    const stop = route.stops[stopIndex]!, pathIndex = stop.pathIndex;
     const [longitude, latitude] = route.coordinates[pathIndex]!;
     return { id: `${route.id}-${offset + 1}`, longitude, latitude, observedAt,
-      properties: { label: `${route.id} ${String(offset + 1).padStart(2,'0')}`, route: route.id, stop: route.stops[pathIndex]!.name,
-        pathIndex, association: 'at', kind: 'train', direction: cycle < route.coordinates.length - 1 ? 'Downtown' : 'Uptown' } };
+      properties: { label: `${route.id} ${String(offset + 1).padStart(2,'0')}`, route: route.id, stop: stop.name, stopId: stop.id, gtfsStopId: stop.gtfsStopId!,
+        pathIndex, association: 'at', kind: 'train', direction: cycle < route.stops.length - 1 ? 'Downtown' : 'Uptown' } };
   });
   return JSON.stringify({ inputId: routeId.toLowerCase(), scope: routeId.toLowerCase(), kind: 'snapshot', complete: true, publishedAt: observedAt, entities });
 }

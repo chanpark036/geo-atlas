@@ -1,5 +1,7 @@
 # Accepted first-milestone decisions — 2026-10-29
 
+> Geography update: the schematic has been replaced by OpenFreeMap cartography and a locally served MTA static GTFS subset. Reports remain synthetic. See [map data and provenance](map-data.md) for the accepted next milestone and current data coverage.
+
 This document records the design review and the decisions accepted during implementation. It supplements the reconstructed system and adapter designs and supersedes their unresolved proposals where stated here. The recovered bundle remains unchanged in `geoatlas-design-documents/`.
 
 ## Review of the reconstructed designs

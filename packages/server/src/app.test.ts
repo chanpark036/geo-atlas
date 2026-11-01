@@ -62,3 +62,15 @@ it('sanitizes failures, retries without overlapping polls, and preserves prior s
   expect(runtime.status()[0]?.status).toBe('retrying');expect(JSON.stringify(runtime.status())).not.toContain('SECRET-CANARY');
   await delay(430);await runtime.stop();expect(calls).toBeGreaterThanOrEqual(2);expect(maxActive).toBe(1);expect(state.snapshot().entities).toEqual([]);
 });
+
+it('serves static MTA geometry locally and permits only the approved map origin in CSP', async () => {
+  const { app } = await make({ startRuntime: false });
+  const response = await app.inject('/api/catalog');
+  const catalog = response.json();
+  expect(catalog.source.name).toContain('MTA');
+  expect(catalog.routes.find((route: { id: string }) => route.id === 'C').stops).toHaveLength(11);
+  const csp = response.headers['content-security-policy'] as string;
+  expect(csp).toContain("connect-src 'self' https://tiles.openfreemap.org;");
+  expect(csp).not.toContain('https:;');
+  expect(csp).not.toContain('*');
+});

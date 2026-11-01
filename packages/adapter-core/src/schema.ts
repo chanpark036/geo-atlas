@@ -56,11 +56,21 @@ export const wireMessageSchema = z.discriminatedUnion('type', [
 export type WireMessage = z.infer<typeof wireMessageSchema>;
 export type ChangeMessage = Extract<WireMessage, { type: 'change' }>;
 
-export const catalogSchema = z.strictObject({
-  routes: z.array(z.strictObject({
-    id: z.string().max(32), name: z.string().max(128), color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-    coordinates: z.array(z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)])).min(2).max(2000),
-    stops: z.array(z.strictObject({ id: idSchema, name: z.string().max(128), pathIndex: z.number().int().nonnegative() })).max(100),
-  })).max(16),
+const routeSchema = z.strictObject({
+  id: z.string().min(1).max(32), name: z.string().min(1).max(128), color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  sourceShapeId: z.string().max(128).optional(), sourceTripId: z.string().max(128).optional(),
+  coordinates: z.array(z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)])).min(2).max(2000),
+  stops: z.array(z.strictObject({ id: idSchema, gtfsStopId: z.string().max(64).optional(), name: z.string().min(1).max(128), pathIndex: z.number().int().nonnegative() })).max(100),
+}).superRefine((route, ctx) => {
+  if (new Set(route.stops.map(s => s.id)).size !== route.stops.length) ctx.addIssue({ code: 'custom', message: 'Duplicate station identity' });
+  if (route.stops.some((stop, index) => stop.pathIndex >= route.coordinates.length || (index > 0 && stop.pathIndex <= route.stops[index - 1]!.pathIndex))) ctx.addIssue({ code: 'custom', message: 'Station indices must follow the route in order' });
 });
+export const catalogSchema = z.strictObject({
+  routes: z.array(routeSchema).max(16),
+  source: z.strictObject({
+    name: z.string().max(128), url: z.url().startsWith('https://'), termsUrl: z.url().startsWith('https://'),
+    retrievedAt: z.iso.date(), archiveSha256: z.string().regex(/^[a-f0-9]{64}$/), feedVersion: z.string().max(128),
+    feedStartDate: z.string().regex(/^\d{8}$/), feedEndDate: z.string().regex(/^\d{8}$/),
+  }).optional(),
+}).refine(c => new Set(c.routes.map(r => r.id)).size === c.routes.length, 'Duplicate route identity');
 export type Catalog = z.infer<typeof catalogSchema>;

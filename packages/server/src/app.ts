@@ -4,7 +4,7 @@ import fastifyStatic from '@fastify/static';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { StateManager, LIMITS, type ChangeMessage, type DataAdapter, type Catalog } from '@geoatlas/adapter-core';
+import { StateManager, LIMITS, BASEMAP, type ChangeMessage, type DataAdapter, type Catalog } from '@geoatlas/adapter-core';
 import { demoAdapters, demoCatalog } from '@geoatlas/adapters';
 import type { WebSocket } from 'ws';
 import { demoEndpoints } from './endpoints.ts';
@@ -35,7 +35,7 @@ export async function createApp(options: AppOptions = {}) {
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     reply.header('Cache-Control', 'no-store');
-    reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+    reply.header('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: ${BASEMAP.origin}; connect-src 'self' ${BASEMAP.origin}; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`);
   });
   app.get('/api/health', () => ({ ok: true, mode: 'synthetic' }));
   app.get('/api/snapshot', () => state.snapshot());

@@ -1,6 +1,11 @@
 import type { Catalog, TrackedEntity } from '@geoatlas/adapter-core';
 export type Point = [number, number];
-type Motion = { entity: TrackedEntity; from: Point; to: Point; route: Catalog['routes'][number] | undefined; fromIndex: number | undefined; toIndex: number | undefined; started: number; duration: number };
+type Route = Catalog['routes'][number];
+type Path = { route: Route; distances: number[] };
+type Motion = {
+  entity: TrackedEntity; from: Point; to: Point; path: Path | undefined; targetPath: Path | undefined;
+  fromDistance: number | undefined; toDistance: number | undefined; started: number; duration: number;
+};
 const ease = (t: number) => t * t * (3 - 2 * t);
 export function pointAlong(coordinates: Point[], index: number): Point {
   const clamped = Math.min(coordinates.length - 1, Math.max(0, index));
@@ -8,36 +13,71 @@ export function pointAlong(coordinates: Point[], index: number): Point {
   const t = clamped - first;
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 }
+function distancesAlong(coordinates: Point[]): number[] {
+  const distances = [0];
+  for (let i = 1; i < coordinates.length; i++) {
+    const a = coordinates[i - 1]!, b = coordinates[i]!;
+    const longitudeScale = Math.cos((a[1] + b[1]) / 2 * Math.PI / 180);
+    // Local equirectangular distance is sufficient for a Manhattan display transition.
+    distances.push(distances[i - 1]! + Math.hypot((b[0] - a[0]) * longitudeScale, b[1] - a[1]));
+  }
+  return distances;
+}
+function pointAtDistance(path: Path, distance: number): Point {
+  const { distances, route } = path;
+  if (distance <= 0) return route.coordinates[0]!;
+  if (distance >= distances[distances.length - 1]!) return route.coordinates[route.coordinates.length - 1]!;
+  let low = 0, high = distances.length - 1;
+  while (high - low > 1) {
+    const mid = Math.floor((low + high) / 2);
+    if (distances[mid]! <= distance) low = mid; else high = mid;
+  }
+  const length = distances[high]! - distances[low]!;
+  return pointAlong(route.coordinates, low + (length ? (distance - distances[low]!) / length : 0));
+}
 /** Display-only transitions. Never extrapolates beyond a reported target. */
 export class MotionLayer {
   private records = new Map<string, Motion>();
-  constructor(private readonly catalog: Catalog, private readonly reducedMotion = false) {}
+  private readonly paths: Map<string, Path>;
+  constructor(catalog: Catalog, private readonly reducedMotion = false) {
+    this.paths = new Map(catalog.routes.map(route => [route.id, { route, distances: distancesAlong(route.coordinates) }]));
+  }
   sync(entities: readonly TrackedEntity[], now: number, reset = false): void {
-    const keys = new Set(entities.map(e => e.key));
+    const keys = new Set(entities.map(entity => entity.key));
     for (const key of this.records.keys()) if (!keys.has(key)) this.records.delete(key);
     for (const entity of entities) {
       const previous = this.records.get(entity.key);
-      if (!reset && previous && previous.entity.longitude === entity.longitude && previous.entity.latitude === entity.latitude) { previous.entity = entity; continue; }
-      const route = this.catalog.routes.find(r => r.id === entity.properties.route);
-      const toIndex = typeof entity.properties.pathIndex === 'number' && route && Number.isInteger(entity.properties.pathIndex) && entity.properties.pathIndex >= 0 && entity.properties.pathIndex < route.coordinates.length ? entity.properties.pathIndex : undefined;
+      if (!reset && previous && previous.entity.longitude === entity.longitude && previous.entity.latitude === entity.latitude) {
+        previous.entity = entity; continue;
+      }
+      const candidate = typeof entity.properties.route === 'string' ? this.paths.get(entity.properties.route) : undefined;
+      const index = entity.properties.pathIndex;
+      const vertex = candidate && typeof index === 'number' && Number.isInteger(index) ? candidate.route.coordinates[index] : undefined;
+      // Old persisted demo geometry or a mismatched route index must not jump to another path.
+      const path = vertex && Math.abs(vertex[0] - entity.longitude) < 1e-8 && Math.abs(vertex[1] - entity.latitude) < 1e-8 ? candidate : undefined;
+      const toDistance = path ? path.distances[index as number] : undefined;
       const sampled = previous ? this.sampleMotion(previous, now) : undefined;
-      const canFollow = previous?.route?.id === route?.id && previous?.toIndex !== undefined && toIndex !== undefined;
+      const samePath = previous && (previous.path === path || (previous.targetPath === path && now >= previous.started + previous.duration));
+      const canFollow = path && samePath && sampled?.distance !== undefined && toDistance !== undefined;
       const direct = reset || !previous || this.reducedMotion;
-      this.records.set(entity.key, { entity, from: direct ? [entity.longitude,entity.latitude] : sampled!.point,
-        to: [entity.longitude,entity.latitude], route: canFollow || direct ? route : undefined, fromIndex: canFollow ? sampled!.index : toIndex, toIndex,
-        started: now, duration: direct ? 0 : 1_500 });
+      this.records.set(entity.key, {
+        entity, from: direct ? [entity.longitude, entity.latitude] : sampled!.point,
+        to: [entity.longitude, entity.latitude], path: canFollow || direct ? path : undefined, targetPath: path,
+        fromDistance: canFollow ? sampled.distance : toDistance, toDistance,
+        started: now, duration: direct ? 0 : 1_500,
+      });
     }
   }
   points(now: number): { entity: TrackedEntity; point: Point }[] {
     return [...this.records.values()].map(motion => ({ entity: motion.entity, point: this.sampleMotion(motion, now).point }));
   }
-  moving(now: number): boolean { return [...this.records.values()].some(m => now - m.started < m.duration); }
-  private sampleMotion(motion: Motion, now: number): { point: Point; index: number | undefined } {
+  moving(now: number): boolean { return [...this.records.values()].some(motion => now - motion.started < motion.duration); }
+  private sampleMotion(motion: Motion, now: number): { point: Point; distance: number | undefined } {
     const t = motion.duration ? ease(Math.max(0, Math.min(1, (now - motion.started) / motion.duration))) : 1;
-    if (motion.route && motion.fromIndex !== undefined && motion.toIndex !== undefined) {
-      const index = motion.fromIndex + (motion.toIndex - motion.fromIndex) * t;
-      return { point: t === 1 ? motion.to : pointAlong(motion.route.coordinates, index), index };
+    if (motion.path && motion.fromDistance !== undefined && motion.toDistance !== undefined) {
+      const distance = motion.fromDistance + (motion.toDistance - motion.fromDistance) * t;
+      return { point: t === 1 ? motion.to : pointAtDistance(motion.path, distance), distance };
     }
-    return { point: [motion.from[0] + (motion.to[0] - motion.from[0]) * t, motion.from[1] + (motion.to[1] - motion.from[1]) * t], index: undefined };
+    return { point: [motion.from[0] + (motion.to[0] - motion.from[0]) * t, motion.from[1] + (motion.to[1] - motion.from[1]) * t], distance: t === 1 ? motion.toDistance : undefined };
   }
 }

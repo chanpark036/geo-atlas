@@ -19,3 +19,37 @@ it('does not restart an animation for a freshness-only update and removes vanish
   const motion=new MotionLayer(catalog);motion.sync([entity(0)],0);motion.sync([entity(2)],100);motion.sync([{...entity(2),stale:true}],850);
   expect(motion.points(1600)[0]?.point).toEqual([1,1]);motion.sync([],1600);expect(motion.points(1600)).toEqual([]);
 });
+
+it('moves by distance rather than vertex count on unevenly sampled paths', () => {
+  const dense: Catalog = { routes: [{ id: 'A', name: 'Test', color: '#ffffff', coordinates: [[0,0],[.1,0],[.2,0],[10,0]], stops: [] }] };
+  const start = { ...entity(0), longitude: 0, latitude: 0 };
+  const end = { ...entity(0), longitude: 10, latitude: 0, properties: { route: 'A', pathIndex: 3 } };
+  const motion = new MotionLayer(dense);
+  motion.sync([start], 0); motion.sync([end], 100);
+  expect(motion.points(850)[0]?.point[0]).toBeCloseTo(5);
+  expect(motion.points(1600)[0]?.point).toEqual([10,0]);
+});
+it('does not jump to a route vertex when persisted coordinates belong to an older geometry', () => {
+  const old = { ...entity(0), longitude: -5, latitude: -5 };
+  const motion = new MotionLayer(catalog);
+  motion.sync([old], 0); motion.sync([entity(2)], 100);
+  expect(motion.points(100)[0]?.point).toEqual([-5,-5]);
+  expect(motion.points(1600)[0]?.point).toEqual([1,1]);
+});
+it('resumes route-following after a transition from older geometry reaches a valid stop', () => {
+  const motion = new MotionLayer(catalog);
+  motion.sync([{ ...entity(0), longitude: -5, latitude: -5 }], 0);
+  motion.sync([entity(0)], 100);
+  motion.sync([entity(2)], 1700);
+  expect(motion.points(2450)[0]?.point).toEqual([1,0]);
+});
+it('transitions vessel reports without a route and holds at the target', () => {
+  const start = { ...entity(0), longitude: -74.02, latitude: 40.70, properties: { kind: 'vessel' } };
+  const end = { ...start, longitude: -74.00, latitude: 40.72 };
+  const motion = new MotionLayer(catalog);
+  motion.sync([start], 0); motion.sync([end], 100);
+  expect(motion.points(100)[0]?.point).toEqual([-74.02,40.70]);
+  expect(motion.points(850)[0]?.point[0]).toBeCloseTo(-74.01);
+  expect(motion.points(850)[0]?.point[1]).toBeCloseTo(40.71);
+  expect(motion.points(9999)[0]?.point).toEqual([-74.00,40.72]);
+});

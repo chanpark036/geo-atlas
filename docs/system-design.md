@@ -84,5 +84,9 @@ Before production, decide geographic coverage, user access model, basemap provid
 
 Minimum validation: mock data appears on the map; snapshot scopes remain independent; invalid input cannot clear valid state; stream updates preserve unrelated vessels; disconnects recover; stale data is visible or expired according to explicit policy; credentials never reach browser payloads; server resources remain bounded.
 
+## Current geography milestone
+
+The New York background uses OpenFreeMap; station positions and route paths are a locally served, provenance-tracked MTA static GTFS subset. Reports remain synthetic. See [map data](map-data.md) for network policy, source terms, coverage dates, fallback behavior, and refresh procedure.
+
 ## 9. Recovery provenance
 Available evidence: five accessible conversation turns, including the adapter design response, project transfer guidance and complete AGENTS.md example. No attached original Markdown, Word file or original security ADR was returned. This is a usable reconstructed baseline and should be reconciled if originals become available.

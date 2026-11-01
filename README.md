@@ -2,7 +2,7 @@
 
 A local geospatial observatory built with React, TypeScript, MapLibre, Fastify, WebSockets, and SQLite.
 
-The first milestone runs entirely on **synthetic data**: six trains on three A/C/E-style routes and three harbor vessels. The background, stop coordinates, and route paths are approximate schematic geometry. No API keys, provider accounts, external tiles, or live feeds are required.
+The demo shows **synthetic traffic**: six trains on A/C/E routes and three harbor vessels. The New York background comes from OpenFreeMap/OpenStreetMap; station positions and route paths come from a locally served subset of official MTA static GTFS. No API keys or provider accounts are required. Background tiles require internet access; report generation and static subway geometry run locally. No live feeds are enabled.
 
 ## Run locally
 
@@ -39,6 +39,7 @@ pnpm build
 - SQLite persistence of current entities and reconciliation bookkeeping, committed before broadcast. There is no historical playback.
 - A full state snapshot on every browser connection, followed by revisioned changes. Gaps force a reconnect and resynchronization.
 - Layer filters, entity search, report details, source health, and map selection.
+- Geographic New York basemap with visible attribution, official static route shapes and station positions, and an explicit route-only fallback if map tiles are unavailable.
 - Track-following 1.5-second visual transitions that hold at the last reported target. New reports retarget from the displayed position. Reduced-motion preferences place markers immediately.
 
 ## Configuration
@@ -68,7 +69,9 @@ The demo has no authentication and is intended for local use. Public hosting nee
 
 Read [system design](docs/system-design.md), [adapter contract](docs/adapter-design.md), and [accepted implementation decisions](docs/implementation-decisions.md). The decisions document records the review of the reconstructed specifications and resolves the first milestone's open questions.
 
-Next: accurate New York basemap, verified stations and track geometry, then MTA GTFS-Realtime stop associations and AISStream. Real feeds require verified schema, timestamp meanings, licensing, limits, and trusted network/credential handling. Animation must preserve reported associations such as “at” versus “approaching”; it must not invent precise train locations.
+See [map data and provenance](docs/map-data.md) for the source dates, selected Manhattan coverage, licensing, and reproducible geometry import.
+
+Next: MTA GTFS-Realtime stop associations, variant-aware route matching and AISStream. Real feeds require verified schema, timestamp meanings, licensing, limits, and trusted network/credential handling. Animation must preserve reported associations such as “at” versus “approaching”; it must not invent precise train locations.
 
 A [CI template](docs/ci-template.yml) runs tests and the production build without provider credentials. To enable it, copy it to `.github/workflows/ci.yml` using GitHub access that permits workflow uploads. It is not active yet.
 
@@ -76,4 +79,4 @@ A [CI template](docs/ci-template.yml) runs tests and the production build withou
 
 ## License
 
-[MIT](LICENSE). Third-party data and basemap licensing must be verified separately when those sources are introduced.
+[MIT](LICENSE) for project code. MTA static data and OpenStreetMap/OpenMapTiles cartography retain their separate source terms and attribution requirements; see [map data](docs/map-data.md).
