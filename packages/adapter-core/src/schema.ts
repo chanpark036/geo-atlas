@@ -7,7 +7,6 @@ export const LIMITS = Object.freeze({
   wireBytes: 2_097_152,
   futureSkewMs: 60_000,
   tombstones: 4_000,
-  tombstoneTtlMs: 604_800_000,
 });
 export const idSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/);
 export const entityIdSchema = z
@@ -153,6 +152,7 @@ const routeSchema = z
     id: z.string().min(1).max(32),
     name: z.string().min(1).max(128),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    unmappedStopIds: z.array(z.string().min(1).max(64)).max(100).optional(),
     sourceShapeId: z.string().max(128).optional(),
     sourceTripId: z.string().max(128).optional(),
     compatibleShapeIds: z.array(z.string().min(1).max(128)).max(300).optional(),
@@ -185,7 +185,20 @@ const routeSchema = z
   });
 export const catalogSchema = z
   .strictObject({
-    routes: z.array(routeSchema).max(16),
+    routes: z.array(routeSchema).max(32),
+    stations: z
+      .array(
+        z.strictObject({
+          id: idSchema,
+          gtfsStationId: z.string().min(1).max(64),
+          name: z.string().min(1).max(128),
+          longitude: z.number().finite().min(-180).max(180),
+          latitude: z.number().finite().min(-90).max(90),
+          routeIds: z.array(z.string().min(1).max(32)).min(1).max(32),
+        }),
+      )
+      .max(1000)
+      .optional(),
     source: z
       .strictObject({
         name: z.string().max(128),
@@ -199,10 +212,27 @@ export const catalogSchema = z
       })
       .optional(),
   })
-  .refine(
-    (c) => new Set(c.routes.map((r) => r.id)).size === c.routes.length,
-    'Duplicate route identity',
-  );
+  .superRefine((catalog, ctx) => {
+    const routeIds = new Set(catalog.routes.map((route) => route.id));
+    if (routeIds.size !== catalog.routes.length)
+      ctx.addIssue({ code: 'custom', message: 'Duplicate route identity' });
+    if (catalog.stations) {
+      if (
+        new Set(catalog.stations.map((station) => station.id)).size !== catalog.stations.length ||
+        new Set(catalog.stations.map((station) => station.gtfsStationId)).size !==
+          catalog.stations.length
+      )
+        ctx.addIssue({ code: 'custom', message: 'Duplicate global station identity' });
+      if (
+        catalog.stations.some(
+          (station) =>
+            new Set(station.routeIds).size !== station.routeIds.length ||
+            station.routeIds.some((id) => !routeIds.has(id)),
+        )
+      )
+        ctx.addIssue({ code: 'custom', message: 'Invalid station route membership' });
+    }
+  });
 export type Catalog = z.infer<typeof catalogSchema>;
 
 export const sourceHealthSchema = z.strictObject({

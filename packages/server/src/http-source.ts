@@ -2,16 +2,23 @@ import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
 import type { IncomingHttpHeaders } from 'node:http';
 import type { LookupFunction } from 'node:net';
-import { LIMITS } from '@geoatlas/adapter-core';
+import { LIMITS, MTA_FEEDS } from '@geoatlas/adapter-core';
 import type { Endpoint } from './runtime.ts';
 
 /** Reviewed server-side registry. Adapters and environment variables cannot supply URLs. */
-export const MTA_ENDPOINT = Object.freeze({
-  id: 'mta-ace',
-  url: 'https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace',
-  hostname: 'api-endpoint.mta.info',
-  timeoutMs: 20_000,
-});
+const HOSTNAME = 'api-endpoint.mta.info';
+export const MTA_ENDPOINTS = new Map(
+  MTA_FEEDS.map((feed) => [
+    `mta-${feed.id}`,
+    Object.freeze({
+      id: `mta-${feed.id}`,
+      url: `https://${HOSTNAME}/Dataservice/mtagtfsfeeds/nyct%2F${feed.suffix}`,
+      hostname: HOSTNAME,
+      timeoutMs: 20_000,
+    }),
+  ]),
+);
+export const MTA_ENDPOINT = MTA_ENDPOINTS.get('mta-ace')!;
 
 export function isPublicIpv4(address: string): boolean {
   const parts = address.split('.');
@@ -87,14 +94,16 @@ export async function readBoundedBody(
   if (!length) throw new Error('Empty source response');
   return Buffer.concat(chunks, length);
 }
-export function mtaEndpoint(): Endpoint {
+export function mtaEndpoint(id = 'mta-ace'): Endpoint {
+  const endpoint = MTA_ENDPOINTS.get(id);
+  if (!endpoint) throw new Error('Unregistered MTA endpoint');
   return {
     kind: 'poll',
-    timeoutMs: MTA_ENDPOINT.timeoutMs,
+    timeoutMs: endpoint.timeoutMs,
     read(signal) {
       return new Promise<Uint8Array>((resolve, reject) => {
         const upstream = request(
-          MTA_ENDPOINT.url,
+          endpoint.url,
           {
             method: 'GET',
             agent: false,
@@ -122,7 +131,7 @@ export function mtaEndpoint(): Endpoint {
             })();
           },
         );
-        upstream.setTimeout(MTA_ENDPOINT.timeoutMs, () =>
+        upstream.setTimeout(endpoint.timeoutMs, () =>
           upstream.destroy(new Error('Source timed out')),
         );
         upstream.on('error', () => reject(new Error('Source request failed')));

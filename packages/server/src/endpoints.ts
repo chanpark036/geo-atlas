@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { demoCatalog, transitPayload, vesselPayload } from '@geoatlas/adapters';
-import { mtaEndpoint } from './http-source.ts';
+import { MTA_ENDPOINTS, mtaEndpoint } from './http-source.ts';
 import type { Endpoint } from './runtime.ts';
 
 export function demoEndpoints(): ReadonlyMap<string, Endpoint> {
@@ -32,6 +32,6 @@ export function mtaEndpoints(): ReadonlyMap<string, Endpoint> {
   endpoints.delete('demo-a');
   endpoints.delete('demo-c');
   endpoints.delete('demo-e');
-  endpoints.set('mta-ace', mtaEndpoint());
+  for (const id of MTA_ENDPOINTS.keys()) endpoints.set(id, mtaEndpoint(id));
   return endpoints;
 }

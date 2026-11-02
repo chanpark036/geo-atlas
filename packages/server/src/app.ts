@@ -12,7 +12,13 @@ import {
   type DataAdapter,
   type Catalog,
 } from '@geoatlas/adapter-core';
-import { demoAdapters, demoCatalog, maritimeAdapter, createMtaAdapter } from '@geoatlas/adapters';
+import {
+  demoAdapters,
+  demoCatalog,
+  maritimeAdapter,
+  createMtaAdapter,
+  networkCatalog,
+} from '@geoatlas/adapters';
 import type { WebSocket } from 'ws';
 import { demoEndpoints, mtaEndpoints } from './endpoints.ts';
 import { IngestionRuntime, type Endpoint } from './runtime.ts';
@@ -31,15 +37,15 @@ export interface AppOptions {
 export async function createApp(options: AppOptions = {}) {
   const app = Fastify({ logger: false, bodyLimit: 1024, requestTimeout: 10_000 });
   const mode = options.transitSource ?? 'synthetic';
+  const catalog = options.catalog ?? (mode === 'mta' ? networkCatalog : demoCatalog);
   const adapters =
     options.adapters ??
-    (mode === 'mta'
-      ? [createMtaAdapter(options.catalog ?? demoCatalog), maritimeAdapter]
-      : demoAdapters);
+    (mode === 'mta' ? [createMtaAdapter(catalog), maritimeAdapter] : demoAdapters);
   const store = new SqliteStore(options.databasePath ?? ':memory:');
+  const epoch = randomUUID();
   let state: StateManager;
   try {
-    state = new StateManager(adapters, randomUUID(), (c) => store.save(c), store.load());
+    state = new StateManager(adapters, epoch, (c) => store.save(c), store.load());
     state.sweep();
   } catch (error) {
     store.close();
@@ -85,7 +91,10 @@ export async function createApp(options: AppOptions = {}) {
   });
   app.get('/api/health', () => ({ ok: true, mode }));
   app.get('/api/snapshot', () => state.snapshot());
-  app.get('/api/catalog', () => options.catalog ?? demoCatalog);
+  app.get('/api/catalog', (_request, reply) => {
+    reply.header('X-GeoAtlas-Epoch', epoch);
+    return catalog;
+  });
   app.get('/api/status', () => ({
     mode,
     sources: runtime.status(),

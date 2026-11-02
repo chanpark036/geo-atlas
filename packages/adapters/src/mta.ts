@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   batchSchema,
   LIMITS,
+  MTA_FEEDS,
   type AdapterBatch,
   type Catalog,
   type DataAdapter,
@@ -59,8 +60,12 @@ const envelopeSchema = z.object({
     .default([]),
 });
 
-/** Read-only A/C/E Manhattan view. No predictions are converted to train positions. */
+/** Read-only subway stop associations. No predictions are converted to train positions. */
 export function createMtaAdapter(catalog: Catalog): DataAdapter {
+  const groups = MTA_FEEDS.filter((group) =>
+    catalog.routes.some((route) => (group.routes as readonly string[]).includes(route.id)),
+  );
+  const stations = new Map(catalog.stations?.map((station) => [station.gtfsStationId, station]));
   return {
     manifest: {
       id: 'mta-subway',
@@ -73,20 +78,20 @@ export function createMtaAdapter(catalog: Catalog): DataAdapter {
       staleAfterMs: 60_000,
       expireAfterMs: 180_000,
       snapshotGrace: 2,
-      inputs: [
-        {
-          id: 'ace',
-          scope: 'manhattan',
-          endpointId: 'mta-ace',
-          kind: 'poll',
-          intervalMs: 30_000,
-          semantics: 'snapshot',
-        },
-      ],
+      inputs: groups.map((group) => ({
+        id: group.id,
+        scope: 'citywide',
+        endpointId: `mta-${group.id}`,
+        kind: 'poll' as const,
+        intervalMs: 30_000,
+        semantics: 'snapshot' as const,
+      })),
     },
     decode(packet: SourcePacket): readonly AdapterBatch[] {
       if (typeof packet.payload === 'string' || packet.payload.byteLength > LIMITS.packetBytes)
         throw new Error('Expected bounded protobuf bytes');
+      const group = groups.find((candidate) => candidate.id === packet.inputId);
+      if (!group || packet.scope !== 'citywide') throw new Error('Undeclared MTA feed scope');
       const message = bindings.transit_realtime.FeedMessage.decode(packet.payload);
       const decoded = bindings.transit_realtime.FeedMessage.toObject(message, {
         longs: String,
@@ -108,30 +113,36 @@ export function createMtaAdapter(catalog: Catalog): DataAdapter {
         // TripUpdates and alerts are not vehicle associations and cannot position a train.
         if (record.vehicle === undefined) continue;
         const raw = z.object({ trip: z.object({ routeId: z.string() }) }).parse(record.vehicle);
+        if (!(group.routes as readonly string[]).includes(raw.trip.routeId)) continue;
         const route = catalog.routes.find((candidate) => candidate.id === raw.trip.routeId);
         if (!route) continue;
         const vehicle = vehicleSchema.parse(record.vehicle);
         if (vehicle.trip.scheduleRelationship === 3 || vehicle.trip.scheduleRelationship === 7)
           continue;
         const stationId = vehicle.stopId.slice(0, -1);
-        const stop = route.stops.find(
+        const primaryStop = route.stops.find(
           (candidate) => candidate.gtfsStopId?.slice(0, -1) === stationId,
         );
-        // Deliberately scoped coverage; unsupported stops/routes are not malformed snapshots.
-        if (!stop) continue;
+        const station = stations.get(stationId);
+        if (!station && !primaryStop) continue;
+        const stopName = station?.name ?? primaryStop!.name;
+        const stopId = station?.id ?? primaryStop!.id;
         let movementMs = vehicle.timestamp === undefined ? null : vehicle.timestamp * 1_000;
         // Some otherwise current MTA feeds contain future last-movement clocks.
         // This optional diagnostic never orders state: omit it rather than advancing a clock.
         if (movementMs !== null && movementMs > publishedMs + LIMITS.futureSkewMs)
           movementMs = null;
-        const direction = vehicle.stopId.endsWith('N') ? 'Uptown' : 'Downtown';
+        const directionCode = vehicle.stopId.slice(-1);
+        const direction = directionCode === 'N' ? 'Northbound' : 'Southbound';
         // NYCT documents start-time_shape-id. Path identifiers may change mid-trip.
         const match = /^(-?\d+)_(.*)$/.exec(vehicle.trip.tripId);
         const origin = match?.[1] ?? vehicle.trip.tripId;
         const pattern = match?.[2] ?? '';
-        const identity = `${vehicle.trip.routeId}|${vehicle.trip.startDate}|${origin}|${direction}`;
+        const identity = `${vehicle.trip.routeId}|${vehicle.trip.startDate}|${origin}|${directionCode}`;
         const id = `train-${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`;
-        const [longitude, latitude] = route.coordinates[stop.pathIndex]!;
+        const [longitude, latitude] = station
+          ? [station.longitude, station.latitude]
+          : route.coordinates[primaryStop!.pathIndex]!;
         const association =
           vehicle.currentStopSequence === undefined
             ? 'associated'
@@ -144,10 +155,10 @@ export function createMtaAdapter(catalog: Catalog): DataAdapter {
           properties: {
             label: `${route.id} ${origin}`,
             route: route.id,
-            stop: stop.name,
-            stopId: stop.id,
+            stop: stopName,
+            stopId,
             gtfsStopId: vehicle.stopId,
-            pathIndex: stop.pathIndex,
+            pathIndex: primaryStop?.pathIndex ?? null,
             association,
             kind: 'train',
             direction,
@@ -155,7 +166,8 @@ export function createMtaAdapter(catalog: Catalog): DataAdapter {
             tripId: vehicle.trip.tripId,
             serviceDate: vehicle.trip.startDate,
             lastMovementAt: movementMs === null ? null : new Date(movementMs).toISOString(),
-            animation: route.compatibleShapeIds?.includes(pattern) ? 'track' : 'fade',
+            animation:
+              primaryStop && route.compatibleShapeIds?.includes(pattern) ? 'track' : 'fade',
           },
         });
       }

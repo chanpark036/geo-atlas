@@ -99,7 +99,7 @@ The New York background uses OpenFreeMap; station positions and route paths are 
 
 ## Current realtime milestone
 
-`TRANSIT_SOURCE=mta` selects one grouped A/C/E polling input behind a fixed, restricted server-side HTTPS transport. Stop associations use feed publication time, preserve provider status wording and fall back to fades for unknown paths. Harbor traffic remains synthetic. See [MTA realtime](mta-realtime.md).
+`TRANSIT_SOURCE=mta` selects eight grouped subway polling inputs behind a fixed, restricted server-side HTTPS transport. See [citywide subway coverage](subway-network.md) for the 29-route catalog, station coverage, filters and current persistence policy. Stop associations use feed publication time, preserve provider status wording and fall back to fades for unknown paths. Harbor traffic remains synthetic. See [MTA realtime](mta-realtime.md).
 
 ## 9. Recovery provenance
 

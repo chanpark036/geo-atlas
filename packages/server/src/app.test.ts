@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { demoAdapters, transitPayload } from '@geoatlas/adapters';
+import { demoAdapters, demoCatalog, transitPayload } from '@geoatlas/adapters';
 import { createApp } from './app.ts';
 import { IngestionRuntime, type Endpoint } from './runtime.ts';
 import { mtaFixtureBytes } from '../../adapters/src/test-support.ts';
@@ -188,6 +188,7 @@ it('runs MTA mode with offline protobuf fixtures and distinguishes report public
   const published = Math.floor(Date.now() / 1000) - 5;
   const { app, state, runtime } = await make({
     transitSource: 'mta',
+    catalog: demoCatalog,
     endpoints: new Map<string, Endpoint>([
       [
         'mta-ace',
@@ -225,4 +226,52 @@ it('runs MTA mode with offline protobuf fixtures and distinguishes report public
   expect(state.snapshot().entities).toHaveLength(1);
   expect(state.snapshot().entities[0]?.properties.source).toBe('mta');
   expect((await app.inject('/api/health')).json().mode).toBe('mta');
+});
+
+it('serves the citywide catalog and reconciles offline fixtures from every feed', async () => {
+  const { MTA_FEEDS } = await import('@geoatlas/adapter-core');
+  const { networkCatalog } = await import('@geoatlas/adapters');
+  const timestamp = Math.floor(Date.now() / 1000) - 5;
+  const endpoints = new Map<string, Endpoint>();
+  for (const group of MTA_FEEDS) {
+    const routeId = group.routes[0],
+      station = networkCatalog.stations!.find((item) => item.routeIds.includes(routeId))!;
+    endpoints.set(`mta-${group.id}`, {
+      kind: 'poll',
+      timeoutMs: 1000,
+      async read() {
+        return mtaFixtureBytes(timestamp, routeId, station.gtfsStationId + 'S');
+      },
+    });
+  }
+  endpoints.set('demo-harbor', {
+    kind: 'websocket',
+    idleTimeoutMs: 10000,
+    async *open(signal) {
+      await delay(10000, undefined, { signal });
+    },
+  });
+  const { app, state } = await make({ transitSource: 'mta', endpoints });
+  await delay(20);
+  const catalog = (await app.inject('/api/catalog')).json();
+  expect(catalog.routes).toHaveLength(29);
+  expect(catalog.stations).toHaveLength(496);
+  expect(state.snapshot().entities).toHaveLength(8);
+  const status = dashboardStatusSchema.parse((await app.inject('/api/status')).json());
+  expect(status.sources).toHaveLength(9);
+  expect(
+    status.sources
+      .filter((source) => source.adapterId === 'mta-subway')
+      .every((source) => source.status === 'healthy'),
+  ).toBe(true);
+});
+it('identifies catalog responses with the same epoch used by the WebSocket snapshot', async () => {
+  const first = await make({ startRuntime: false });
+  const response = await first.app.inject('/api/catalog');
+  expect(response.headers['x-geoatlas-epoch']).toBe(first.state.snapshot().epoch);
+  expect(response.headers['cache-control']).toBe('no-store');
+  const restarted = await make({ startRuntime: false });
+  const next = await restarted.app.inject('/api/catalog');
+  expect(next.headers['x-geoatlas-epoch']).toBe(restarted.state.snapshot().epoch);
+  expect(next.headers['x-geoatlas-epoch']).not.toBe(response.headers['x-geoatlas-epoch']);
 });

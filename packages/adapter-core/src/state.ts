@@ -187,7 +187,7 @@ export class StateManager {
       )
         continue;
       next.delete(key);
-      tombstones[key] = { observedAt, expiresAt: now + LIMITS.tombstoneTtlMs };
+      tombstones[key] = { observedAt, expiresAt: observedAt + manifest.expireAfterMs };
     }
     if (batch.kind === 'snapshot')
       for (const [key, entity] of next) {
@@ -201,7 +201,7 @@ export class StateManager {
           next.delete(key);
           tombstones[key] = {
             observedAt: Math.max(published!, Date.parse(entity.observedAt)),
-            expiresAt: now + LIMITS.tombstoneTtlMs,
+            expiresAt: Math.max(published!, Date.parse(entity.observedAt)) + manifest.expireAfterMs,
           };
         } else next.set(key, { ...entity, missingSnapshots });
       }
@@ -219,15 +219,20 @@ export class StateManager {
         observedAt = Date.parse(entity.observedAt),
         age = now - observedAt;
       if (age >= manifest.expireAfterMs) {
+        // An older replay is already expired too; no deletion record is needed.
         next.delete(key);
-        tombstones[key] = { observedAt, expiresAt: now + LIMITS.tombstoneTtlMs };
       } else if (age >= manifest.staleAfterMs && !entity.stale)
         next.set(key, { ...entity, stale: true });
     }
     return this.commit(next, this.watermarks, tombstones);
   }
   private prunedTombstones(now: number): Checkpoint['tombstones'] {
-    return Object.fromEntries(Object.entries(this.tombstones).filter(([, v]) => v.expiresAt > now));
+    return Object.fromEntries(
+      Object.entries(this.tombstones).filter(([key, value]) => {
+        const manifest = this.adapters.get(key.split('|')[0]!)!.manifest;
+        return value.expiresAt > now && value.observedAt + manifest.expireAfterMs > now;
+      }),
+    );
   }
   private commit(
     next: Map<string, TrackedEntity>,

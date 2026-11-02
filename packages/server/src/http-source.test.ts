@@ -73,3 +73,15 @@ it('bounds streamed bytes even without content-length and honors abort', async (
   controller.abort();
   await expect(readBoundedBody(valid(), controller.signal)).rejects.toThrow();
 });
+
+it('resolves only eight registered feed IDs, never arbitrary URLs', async () => {
+  const { MTA_ENDPOINTS, mtaEndpoint } = await import('./http-source.ts');
+  const { MTA_FEEDS } = await import('@geoatlas/adapter-core');
+  expect(MTA_ENDPOINTS.size).toBe(8);
+  for (const group of MTA_FEEDS) {
+    const endpoint = MTA_ENDPOINTS.get(`mta-${group.id}`)!;
+    expect(new URL(endpoint.url).hostname).toBe('api-endpoint.mta.info');
+    expect(endpoint.url.endsWith(`nyct%2F${group.suffix}`)).toBe(true);
+  }
+  expect(() => mtaEndpoint('https://untrusted.invalid/feed')).toThrow();
+});

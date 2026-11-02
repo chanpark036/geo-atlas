@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, {
   type GeoJSONSource,
   type Map as MapType,
@@ -12,6 +12,7 @@ import {
   type TrackedEntity,
 } from '@geoatlas/adapter-core';
 import { MotionLayer } from './motion';
+import { entityColor, networkBounds, routeFeatures, stationFeatures } from './layers';
 
 interface Props {
   catalog: Catalog;
@@ -20,6 +21,8 @@ interface Props {
   selected: string | null;
   onSelect: (key: string) => void;
   focusToken: number;
+  fitToken: number;
+  visibleRoutes: readonly string[];
 }
 type BasemapStatus = 'loading' | 'ready' | 'unavailable' | 'partial';
 const routeOnlyStyle = (): StyleSpecification => ({
@@ -28,18 +31,30 @@ const routeOnlyStyle = (): StyleSpecification => ({
   layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0b1c28' } }],
 });
 
-export function MapView({ catalog, entities, resetToken, selected, onSelect, focusToken }: Props) {
+export function MapView({
+  catalog,
+  entities,
+  resetToken,
+  selected,
+  onSelect,
+  focusToken,
+  fitToken,
+  visibleRoutes,
+}: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapType | null>(null);
   const [error, setError] = useState(false);
   const [ready, setReady] = useState(false);
   const [basemap, setBasemap] = useState<BasemapStatus>('loading');
   const retryBasemap = useRef<() => void>(() => {});
-  const motion = useRef(
-    new MotionLayer(catalog, matchMedia('(prefers-reduced-motion: reduce)').matches),
+  const motion = useMemo(
+    () => new MotionLayer(catalog, matchMedia('(prefers-reduced-motion: reduce)').matches),
+    [catalog],
   );
-  const current = useRef({ entities, selected, onSelect });
-  current.current = { entities, selected, onSelect };
+  const current = useRef({ entities, selected, onSelect, visibleRoutes });
+  current.current = { entities, selected, onSelect, visibleRoutes };
+  const fitNetwork = useRef<() => void>(() => {});
+  const refreshSelection = useRef<() => void>(() => {});
   const dirty = useRef(true);
   const lastReset = useRef(resetToken);
 
@@ -51,7 +66,7 @@ export function MapView({ catalog, entities, resetToken, selected, onSelect, foc
         container: container.current,
         center: [-73.998, 40.739],
         zoom: 12.6,
-        minZoom: 10,
+        minZoom: 8,
         maxZoom: 17,
         attributionControl: { compact: false, customAttribution: BASEMAP.transitAttribution },
         transformRequest: mapResourceRequest,
@@ -66,7 +81,32 @@ export function MapView({ catalog, entities, resetToken, selected, onSelect, foc
     let mode: 'remote' | 'fallback' = 'remote';
     let styleInstalled = false;
     let timeout: ReturnType<typeof setTimeout>;
-    const markers: maplibregl.Marker[] = [];
+    const labelElement = document.createElement('div');
+    labelElement.className = 'station-label';
+    const labelText = document.createElement('span');
+    labelElement.append(labelText);
+    const selectedStation = new maplibregl.Marker({
+      element: labelElement,
+      anchor: 'left',
+      offset: [12, 0],
+    });
+    refreshSelection.current = () => {
+      const entity = current.current.entities.find((item) => item.key === current.current.selected);
+      if (!entity || entity.layer !== 'subway') {
+        selectedStation.remove();
+        return;
+      }
+      labelText.textContent = String(entity.properties.stop ?? 'Reported stop');
+      selectedStation.setLngLat([entity.longitude, entity.latitude]).addTo(instance);
+    };
+    fitNetwork.current = () =>
+      instance.fitBounds(networkBounds(catalog), {
+        padding: 35,
+        maxZoom: 12.6,
+        duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 600,
+      });
+    if (catalog.stations)
+      instance.fitBounds(networkBounds(catalog), { padding: 35, maxZoom: 12.6, duration: 0 });
     instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 
     const fallback = () => {
@@ -100,17 +140,9 @@ export function MapView({ catalog, entities, resetToken, selected, onSelect, foc
       styleInstalled = true;
       clearTimeout(timeout);
       if (mode === 'remote') setBasemap('ready');
-      for (const marker of markers.splice(0)) marker.remove();
       instance.addSource('routes', {
         type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: catalog.routes.map((route) => ({
-            type: 'Feature',
-            properties: { color: route.color, route: route.id },
-            geometry: { type: 'LineString', coordinates: route.coordinates },
-          })),
-        },
+        data: routeFeatures(catalog, current.current.visibleRoutes),
       });
       instance.addLayer({
         id: 'route-glow',
@@ -126,28 +158,25 @@ export function MapView({ catalog, entities, resetToken, selected, onSelect, foc
           'line-color': ['get', 'color'],
           'line-width': 2,
           'line-opacity': 0.8,
-          'line-offset': ['match', ['get', 'route'], 'C', 2.5, 'E', -2.5, 0],
+          'line-offset': ['get', 'offset'],
         },
       });
-      const seen = new Set<string>();
-      for (const route of catalog.routes)
-        for (const stop of route.stops) {
-          const coordinates = route.coordinates[stop.pathIndex]!;
-          const identity = coordinates.join(',');
-          if (seen.has(identity)) continue;
-          seen.add(identity);
-          const element = document.createElement('div');
-          element.className = 'station-label';
-          const dot = document.createElement('i');
-          const label = document.createElement('span');
-          label.textContent = stop.name;
-          element.append(dot, label);
-          markers.push(
-            new maplibregl.Marker({ element, anchor: 'left', offset: [-3, 0] })
-              .setLngLat(coordinates)
-              .addTo(instance),
-          );
-        }
+      instance.addSource('stations', {
+        type: 'geojson',
+        data: stationFeatures(catalog, current.current.visibleRoutes),
+      });
+      instance.addLayer({
+        id: 'stations',
+        type: 'circle',
+        source: 'stations',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 1.4, 14, 3],
+          'circle-color': '#203c48',
+          'circle-stroke-color': '#b0c6d0',
+          'circle-stroke-width': 0.8,
+        },
+      });
+      refreshSelection.current();
       instance.addSource('entities', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
@@ -191,10 +220,10 @@ export function MapView({ catalog, entities, resetToken, selected, onSelect, foc
     });
     let frame = 0;
     const animate = (now: number) => {
-      if (instance.getSource('entities') && (dirty.current || motion.current.moving(now))) {
+      if (instance.getSource('entities') && (dirty.current || motion.moving(now))) {
         const data: FeatureCollection<Point> = {
           type: 'FeatureCollection',
-          features: motion.current.points(now).map(({ entity, point, opacity }) => ({
+          features: motion.points(now).map(({ entity, point, opacity }) => ({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: point },
             properties: {
@@ -202,14 +231,12 @@ export function MapView({ catalog, entities, resetToken, selected, onSelect, foc
               opacity,
               stale: entity.stale,
               selected: entity.key === current.current.selected,
-              color:
-                catalog.routes.find((route) => route.id === entity.properties.route)?.color ??
-                '#efbc79',
+              color: entityColor(entity, catalog),
             },
           })),
         };
         (instance.getSource('entities') as GeoJSONSource).setData(data);
-        dirty.current = motion.current.moving(now);
+        dirty.current = motion.moving(now);
       }
       frame = requestAnimationFrame(animate);
     };
@@ -218,19 +245,33 @@ export function MapView({ catalog, entities, resetToken, selected, onSelect, foc
       disposed = true;
       clearTimeout(timeout);
       cancelAnimationFrame(frame);
-      for (const marker of markers) marker.remove();
+      selectedStation.remove();
       instance.remove();
       map.current = null;
     };
-  }, [catalog]);
+  }, [catalog, motion]);
   useEffect(() => {
-    motion.current.sync(entities, performance.now(), lastReset.current !== resetToken);
+    motion.sync(entities, performance.now(), lastReset.current !== resetToken);
     lastReset.current = resetToken;
     dirty.current = true;
-  }, [entities, resetToken]);
+    refreshSelection.current();
+  }, [entities, resetToken, motion]);
   useEffect(() => {
     dirty.current = true;
+    refreshSelection.current();
   }, [selected]);
+  useEffect(() => {
+    if (fitToken) fitNetwork.current();
+  }, [fitToken]);
+  useEffect(() => {
+    if (!ready || !map.current) return;
+    (map.current.getSource('routes') as GeoJSONSource | undefined)?.setData(
+      routeFeatures(catalog, visibleRoutes),
+    );
+    (map.current.getSource('stations') as GeoJSONSource | undefined)?.setData(
+      stationFeatures(catalog, visibleRoutes),
+    );
+  }, [catalog, visibleRoutes, ready]);
   useEffect(() => {
     const entity = current.current.entities.find((item) => item.key === current.current.selected);
     if (focusToken && entity)
@@ -260,7 +301,7 @@ export function MapView({ catalog, entities, resetToken, selected, onSelect, foc
         </div>
       )}
       <div className="map-place">
-        NEW YORK HARBOR<span>40.73° N / 74.00° W</span>
+        NEW YORK CITY<span>40.73° N / 74.00° W</span>
       </div>
       <div className="map-disclaimer">
         Stop associations · MTA static geometry · Not for navigation

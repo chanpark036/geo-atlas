@@ -62,3 +62,41 @@ it('rejects malformed catalog relationships at the runtime boundary', () => {
     expect(() => catalogSchema.parse(catalog)).toThrow();
   }
 });
+
+it('covers every registered subway route and retains borough and branch stations', async () => {
+  const { networkCatalog } = await import('./index.ts');
+  const { MTA_ROUTE_IDS } = await import('@geoatlas/adapter-core');
+  expect(networkCatalog.routes.map((route) => route.id).sort()).toEqual([...MTA_ROUTE_IDS].sort());
+  expect(networkCatalog.stations).toHaveLength(496);
+  const station = (id: string) =>
+    networkCatalog.stations!.find((item) => item.gtfsStationId === id)!;
+  expect(station('101').name).toBe('Van Cortlandt Park-242 St');
+  expect(station('101').routeIds).toContain('1');
+  expect(
+    networkCatalog.stations!.some((item) => item.routeIds.includes('SI') && item.latitude < 40.6),
+  ).toBe(true);
+  expect(
+    networkCatalog.stations!.filter((item) => item.routeIds.includes('A')).length,
+  ).toBeGreaterThan(networkCatalog.routes.find((route) => route.id === 'A')!.stops.length);
+  for (const route of networkCatalog.routes)
+    for (const stop of route.stops) {
+      const parent = station(stop.gtfsStopId!.slice(0, -1));
+      expect(parent.routeIds).toContain(route.id);
+      expect([parent.longitude, parent.latitude]).toEqual(route.coordinates[stop.pathIndex]);
+    }
+});
+it('rejects broken global station identities and membership', async () => {
+  const { networkCatalog } = await import('./index.ts');
+  for (const mutate of [
+    (catalog: typeof networkCatalog) => {
+      catalog.stations![0]!.routeIds = ['unknown'];
+    },
+    (catalog: typeof networkCatalog) => {
+      catalog.stations!.push(catalog.stations![0]!);
+    },
+  ]) {
+    const catalog = structuredClone(networkCatalog);
+    mutate(catalog);
+    expect(() => catalogSchema.parse(catalog)).toThrow();
+  }
+});

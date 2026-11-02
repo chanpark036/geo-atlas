@@ -1,5 +1,7 @@
 # Accepted first-milestone decisions — 2026-10-29
 
+> Citywide update: [subway coverage](subway-network.md) now spans eight feed groups. Removal records retire at their proven expiry boundary, superseding the original fixed-week proposal while retaining replay protection and capacity limits.
+
 > Realtime update (2026-11-01): opt-in MTA A/C/E station associations are implemented. Harbor traffic remains synthetic. See [MTA realtime](mta-realtime.md) for current policies; historical first-milestone scope below is retained as a decision record.
 
 > Geography update: the schematic has been replaced by OpenFreeMap cartography and a locally served MTA static GTFS subset. Reports remain synthetic. See [map data and provenance](map-data.md) for the accepted next milestone and current data coverage.

@@ -1,14 +1,17 @@
 import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  catalogSchema,
   dashboardStatusSchema,
+  MTA_FEEDS,
   type Catalog,
   type DashboardStatus,
   type TrackedEntity,
 } from '@geoatlas/adapter-core';
 import { connectLive, type Connection } from './live';
+import { CatalogSynchronizer, loadCatalogForEpoch, type CatalogSyncStatus } from './catalog-sync';
 import { MapView } from './MapView';
+import { RouteFilters } from './RouteFilters';
+import { filterEntities } from './layers';
 import { reportPresentation } from './report-presentation';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './style.css';
@@ -21,7 +24,8 @@ const label = (entity: TrackedEntity) => String(entity.properties.label ?? entit
 
 function App() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
-  const [loadError, setLoadError] = useState(false);
+  const [catalogSyncStatus, setCatalogSyncStatus] = useState<CatalogSyncStatus>('loading');
+  const loadError = catalogSyncStatus === 'retrying';
   const [entities, setEntities] = useState<TrackedEntity[]>([]);
   const [status, setStatus] = useState<DashboardStatus | null>(null);
   const [statusError, setStatusError] = useState(false);
@@ -31,23 +35,12 @@ function App() {
   const [focusToken, setFocusToken] = useState(0);
   const [trains, setTrains] = useState(true);
   const [ships, setShips] = useState(true);
+  const [hiddenRoutes, setHiddenRoutes] = useState<Set<string>>(new Set());
+  const [fitToken, setFitToken] = useState(0);
   const [search, setSearch] = useState('');
   const [sources, setSources] = useState(false);
   const [now, setNow] = useState(Date.now());
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch('/api/catalog', { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error();
-        return response.json();
-      })
-      .then((value) => setCatalog(catalogSchema.parse(value)))
-      .catch(() => {
-        if (!controller.signal.aborted) setLoadError(true);
-      });
-    return () => controller.abort();
-  }, []);
   useEffect(() => {
     const controller = new AbortController();
     let pending = false;
@@ -77,14 +70,22 @@ function App() {
       clearInterval(timer);
     };
   }, []);
-  useEffect(
-    () =>
-      connectLive((next, snapshot) => {
-        setEntities(next);
-        if (snapshot) setResetToken((value) => value + 1);
-      }, setConnection),
-    [],
-  );
+  useEffect(() => {
+    const synchronizer = new CatalogSynchronizer(
+      loadCatalogForEpoch,
+      (state) => {
+        setCatalog(state.catalog);
+        setEntities(state.entities);
+        if (state.reset) setResetToken((value) => value + 1);
+      },
+      setCatalogSyncStatus,
+    );
+    const stop = connectLive((update) => synchronizer.accept(update), setConnection);
+    return () => {
+      stop();
+      synchronizer.dispose();
+    };
+  }, []);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(timer);
@@ -105,8 +106,8 @@ function App() {
     [entities, status, now],
   );
   const visible = useMemo(
-    () => displayEntities.filter((entity) => (entity.layer === 'subway' ? trains : ships)),
-    [displayEntities, trains, ships],
+    () => filterEntities(displayEntities, { trains, ships, hiddenRoutes }),
+    [displayEntities, trains, ships, hiddenRoutes],
   );
   const listed = useMemo(
     () =>
@@ -126,13 +127,23 @@ function App() {
   const route = catalog?.routes.find((item) => item.id === entity?.properties.route);
   const mode =
     status?.mode ?? (entities.some((item) => item.properties.source === 'mta') ? 'mta' : undefined);
-  const mtaPublication = status?.sources.find(
-    (source) => source.adapterId === 'mta-subway',
-  )?.lastPublishedAt;
+  const mtaSources = status?.sources.filter((source) => source.adapterId === 'mta-subway') ?? [];
   const delayed =
     mode === 'mta' &&
-    ((mtaPublication && now - Date.parse(mtaPublication) >= 60_000) ||
+    (mtaSources.some(
+      (source) => source.lastPublishedAt && now - Date.parse(source.lastPublishedAt) >= 60_000,
+    ) ||
       displayEntities.some((item) => item.properties.source === 'mta' && item.stale));
+  const failedFeeds = mtaSources.filter((source) => source.status === 'retrying');
+  const visibleRouteIds = useMemo(
+    () =>
+      trains
+        ? (catalog?.routes
+            .filter((route) => !hiddenRoutes.has(route.id))
+            .map((route) => route.id) ?? [])
+        : [],
+    [catalog, trains, hiddenRoutes],
+  );
   const sourceCount = status?.sources.length;
   const pick = (key: string) => {
     setSelected(key);
@@ -218,13 +229,26 @@ function App() {
       )}
       {delayed && (
         <div className="connection-warning" role="status">
-          MTA reports are more than a minute old. Information may not be real time; station markers
-          show the last received associations.
+          Some MTA feeds are delayed by at least a minute. Affected station markers show the last
+          received associations.
         </div>
       )}
       {statusError && (
         <div className="connection-warning" role="status">
           Source health is temporarily unavailable.
+        </div>
+      )}
+      {failedFeeds.length > 0 && (
+        <div className="connection-warning" role="status">
+          {failedFeeds.length} subway {failedFeeds.length === 1 ? 'feed is' : 'feeds are'} retrying.
+          Other feeds continue; affected reports may be missing or stale.
+        </div>
+      )}
+      {catalog && catalogSyncStatus !== 'ready' && (
+        <div className="connection-warning" role="status">
+          {loadError
+            ? 'Route map refresh failed; retrying. Showing the last synchronized reports.'
+            : 'Refreshing routes to match the reconnected train reports…'}
         </div>
       )}
       <main className="workspace">
@@ -245,14 +269,9 @@ function App() {
                 onChange={(event) => setTrains(event.target.checked)}
               />
             </label>
-            <div className="route-key">
-              {catalog?.routes.map((item) => (
-                <span key={item.id} style={{ color: item.color }}>
-                  <i style={{ background: item.color }} />
-                  {item.id}
-                </span>
-              ))}
-            </div>
+            {catalog && (
+              <RouteFilters catalog={catalog} hidden={hiddenRoutes} onChange={setHiddenRoutes} />
+            )}
             <label className="layer-option">
               <span className="layer-symbol vessel-symbol">≈</span>
               <span>
@@ -319,7 +338,7 @@ function App() {
                   {entities.length
                     ? 'No matching entities.'
                     : mode === 'mta'
-                      ? 'Waiting for MTA stop associations in this coverage…'
+                      ? 'Waiting for MTA subway stop associations…'
                       : 'Waiting for synthetic reports…'}
                 </p>
               )}
@@ -350,8 +369,9 @@ function App() {
           <div className="map-toolbar">
             <span>
               <i />
-              Manhattan & harbor
+              NYC subway & harbor
             </span>
+            <button onClick={() => setFitToken((value) => value + 1)}>Fit network</button>
             <button
               onClick={() => setFocusToken((value) => value + 1)}
               disabled={!entity}
@@ -368,6 +388,8 @@ function App() {
               onSelect={pick}
               resetToken={resetToken}
               focusToken={focusToken}
+              fitToken={fitToken}
+              visibleRoutes={visibleRouteIds}
             />
           ) : (
             <div className="loading-map" role="status">
@@ -417,7 +439,7 @@ function App() {
               {route && (
                 <div className="stop-section">
                   <div className="section-title">
-                    Route context<span style={{ color: route.color }}>{route.id}</span>
+                    Representative path<span style={{ color: route.color }}>{route.id}</span>
                   </div>
                   <ol className="stop-list">
                     {route.stops.map((stop) => (
@@ -522,7 +544,7 @@ function Sources({
         <h2>Behind the map.</h2>
         <p>
           {live
-            ? 'MTA A/C/E station associations are fetched server-side. Harbor reports are synthetic.'
+            ? 'Eight MTA feed groups cover the NYC subway and Staten Island Railway. Harbor reports are synthetic.'
             : status
               ? 'All four report inputs run locally. The geographic background is loaded from OpenFreeMap.'
               : 'Checking report sources…'}
@@ -533,8 +555,9 @@ function Sources({
           <b>
             {source.inputId === 'harbor'
               ? 'Synthetic harbor'
-              : source.inputId === 'ace'
-                ? 'MTA A/C/E feed'
+              : source.adapterId === 'mta-subway'
+                ? (MTA_FEEDS.find((feed) => feed.id === source.inputId)?.label ??
+                  source.inputId.toUpperCase())
                 : `${source.inputId.toUpperCase()} line demo`}
           </b>
           <span className={source.status === 'healthy' ? 'source-ok' : 'source-warn'}>
@@ -587,7 +610,7 @@ function Sources({
       </div>
       <div className="detail-note">
         {live
-          ? 'A/C/E polls every 30 seconds. Only station associations within the Manhattan catalog are shown. Trip predictions are not mapped as train positions.'
+          ? 'Each subway feed polls every 30 seconds. All stations in the static catalog are supported. Trip predictions are not mapped as train positions.'
           : 'Transit updates every 6 seconds. The harbor emits one synthetic vessel report every 2 seconds.'}{' '}
         MTA data is provided as is; GeoAtlas is not MTA-endorsed.
       </div>

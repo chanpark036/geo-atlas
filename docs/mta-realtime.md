@@ -1,5 +1,7 @@
 # MTA realtime transit milestone — 2026-11-01
 
+> Citywide update: MTA mode now supports eight feed groups and the global station catalog. The current checkpoint path is `.data/geoatlas-mta-citywide.sqlite`. See [citywide subway coverage](subway-network.md); the original A/C/E milestone below is retained for context.
+
 ## Run
 
 ```sh

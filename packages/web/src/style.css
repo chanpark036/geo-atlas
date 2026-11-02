@@ -1123,3 +1123,81 @@ h1 > span {
   overflow-wrap: anywhere;
   font-size: 30px;
 }
+
+.route-filters {
+  margin-top: 15px;
+}
+.route-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 9px;
+  margin-bottom: 9px;
+}
+.route-filter-actions span {
+  margin-right: auto;
+}
+.route-filter-actions button {
+  background: none;
+  border: 0;
+  padding: 3px;
+  font-size: 9px;
+  color: #b7d4ca;
+}
+.route-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.route-toggle {
+  min-height: 26px;
+  padding: 3px 1px;
+  border-radius: 5px;
+  border: 1px solid var(--route-color);
+  background: var(--route-color);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  text-shadow: 0 1px 2px #000;
+}
+.route-toggle[aria-pressed='false'] {
+  background: transparent;
+  color: #78919e;
+  border-color: #354b58;
+  text-shadow: none;
+}
+.map-toolbar {
+  gap: 7px;
+}
+.map-toolbar > span {
+  min-width: 0;
+  flex: 1;
+}
+.map-toolbar button {
+  flex-shrink: 0;
+  font-size: 9px;
+}
+@media (max-width: 1200px) {
+  .map-toolbar button:last-child > span {
+    display: none;
+  }
+}
+@media (max-width: 650px) {
+  .route-filters {
+    width: 100%;
+    order: 3;
+    margin-top: 0;
+  }
+  .route-grid {
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+  }
+}
+
+.route-filter-note {
+  display: block;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
+}

@@ -24,7 +24,7 @@ const feed = (vehicles: Vehicle[] = [vehicle()], timestamp = seconds): Feed => (
 const packet = (data: Feed = feed(), received = seconds + 5): SourcePacket => ({
   adapterId: 'mta-subway',
   inputId: 'ace',
-  scope: 'manhattan',
+  scope: 'citywide',
   receivedAt: new Date(received * 1000).toISOString(),
   payload: encode(data),
 });
@@ -36,7 +36,7 @@ it('decodes actual protobuf bytes into complete, scoped stop associations', () =
     kind: 'snapshot',
     complete: true,
     inputId: 'ace',
-    scope: 'manhattan',
+    scope: 'citywide',
     publishedAt: '2026-11-01T17:00:00.000Z',
   });
   expect(batch.entities[0]).toMatchObject({
@@ -46,7 +46,7 @@ it('decodes actual protobuf bytes into complete, scoped stop associations', () =
     properties: {
       source: 'mta',
       association: 'at',
-      direction: 'Downtown',
+      direction: 'Southbound',
       stop: '59 St-Columbus Circle',
       lastMovementAt: '2026-11-01T16:59:50.000Z',
       animation: 'track',
@@ -77,7 +77,7 @@ it('maps northbound platform IDs without shifting their station coordinates', ()
   });
   expect(decode(feed([north])).entities[0]).toMatchObject({
     longitude: -73.981736,
-    properties: { direction: 'Uptown', gtfsStopId: 'A24N', animation: 'track' },
+    properties: { direction: 'Northbound', gtfsStopId: 'A24N', animation: 'track' },
   });
 });
 it('keeps trip identity stable when NYCT changes the pattern suffix, and uses fade for unverified paths', () => {
@@ -167,4 +167,92 @@ it('omits a future optional last-movement clock without using it as observation 
   const result = decode(feed([vehicle({ timestamp: seconds + 3600 })])).entities[0]!;
   expect(result.observedAt).toBe('2026-11-01T17:00:00.000Z');
   expect(result.properties.lastMovementAt).toBeNull();
+});
+
+it('registers all eight feed groups and decodes stations beyond Manhattan', async () => {
+  const { networkCatalog } = await import('./index.ts');
+  const { MTA_FEEDS } = await import('@geoatlas/adapter-core');
+  const network = createMtaAdapter(networkCatalog);
+  expect(network.manifest.inputs.map((input) => input.id)).toEqual(
+    MTA_FEEDS.map((group) => group.id),
+  );
+  for (const group of MTA_FEEDS) {
+    const routeId = group.routes[0];
+    const station = networkCatalog.stations!.find((item) => item.routeIds.includes(routeId))!;
+    const route = networkCatalog.routes.find((item) => item.id === routeId)!;
+    const p = packet(
+      feed([
+        vehicle({
+          stopId: station.gtfsStationId + 'S',
+          trip: { routeId, tripId: `090000_${route.sourceShapeId}`, startDate: '20261101' },
+        }),
+      ]),
+    );
+    p.inputId = group.id;
+    const normalized = network.decode(p)[0]!.entities[0]!;
+    expect(normalized.properties.route).toBe(routeId);
+    expect([normalized.longitude, normalized.latitude]).toEqual([
+      station.longitude,
+      station.latitude,
+    ]);
+  }
+});
+it('places branch or shape-mismatched stations at their real coordinates and uses a fade', async () => {
+  const { networkCatalog } = await import('./index.ts');
+  const network = createMtaAdapter(networkCatalog),
+    route = networkCatalog.routes.find((item) => item.id === 'A')!;
+  const branch = networkCatalog.stations!.find(
+    (station) =>
+      station.routeIds.includes('A') &&
+      !route.stops.some((stop) => stop.gtfsStopId!.slice(0, -1) === station.gtfsStationId),
+  )!;
+  const entity = network.decode(packet(feed([vehicle({ stopId: branch.gtfsStationId + 'S' })])))[0]!
+    .entities[0]!;
+  expect([entity.longitude, entity.latitude]).toEqual([branch.longitude, branch.latitude]);
+  expect(entity.properties.pathIndex).toBeNull();
+  expect(entity.properties.animation).toBe('fade');
+});
+it('isolates disappearance reconciliation across feed groups', async () => {
+  const { networkCatalog } = await import('./index.ts');
+  const network = createMtaAdapter(networkCatalog),
+    state = new StateManager([network], randomUUID());
+  const a = packet();
+  state.ingest(a, (seconds + 5) * 1000);
+  const one = packet(
+    feed([
+      vehicle({
+        stopId: '101S',
+        trip: { routeId: '1', tripId: '090000_1..S03R', startDate: '20261101' },
+      }),
+    ]),
+  );
+  one.inputId = 'numbered';
+  state.ingest(one, (seconds + 5) * 1000);
+  for (const offset of [30, 60])
+    state.ingest(
+      packet(feed([], seconds + offset), seconds + offset + 5),
+      (seconds + offset + 5) * 1000,
+    );
+  expect(state.snapshot().entities).toHaveLength(1);
+  expect(state.snapshot().entities[0]?.properties.route).toBe('1');
+  const invalid = { ...one, payload: new Uint8Array([255]) };
+  expect(() => state.ingest(invalid, (seconds + 70) * 1000)).toThrow();
+  expect(state.snapshot().entities).toHaveLength(1);
+});
+it('cannot write another group through a valid feed envelope', async () => {
+  const { networkCatalog } = await import('./index.ts');
+  const p = packet();
+  p.inputId = 'numbered';
+  expect(createMtaAdapter(networkCatalog).decode(p)[0]?.entities).toEqual([]);
+});
+it('retains detoured trains at a known station outside their static route membership', async () => {
+  const { networkCatalog } = await import('./index.ts');
+  const station = networkCatalog.stations!.find(
+    (item) => item.routeIds.includes('1') && !item.routeIds.includes('A'),
+  )!;
+  const p = packet(feed([vehicle({ stopId: station.gtfsStationId + 'S' })]));
+  const entity = createMtaAdapter(networkCatalog).decode(p)[0]!.entities[0]!;
+  expect(entity.properties.route).toBe('A');
+  expect(entity.properties.animation).toBe('fade');
+  expect([entity.longitude, entity.latitude]).toEqual([station.longitude, station.latitude]);
 });

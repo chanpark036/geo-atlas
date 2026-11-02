@@ -8,9 +8,11 @@ import {
 
 import { catalogSchema } from '@geoatlas/adapter-core';
 import manhattan from './data/manhattan.json' with { type: 'json' };
+import subwayNetwork from './data/subway-network.json' with { type: 'json' };
 
 // Official static GTFS subset; trains and their schedules remain entirely synthetic.
 export const demoCatalog: Catalog = catalogSchema.parse(manhattan);
+export const networkCatalog: Catalog = catalogSchema.parse(subwayNetwork);
 const decode = (packet: SourcePacket) => [
   batchSchema.parse(
     JSON.parse(

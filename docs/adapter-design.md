@@ -6,7 +6,7 @@
 
 ## Current MTA integration
 
-The reviewed MTA A/C/E decoder and fixed HTTPS polling transport are implemented as an opt-in source. See [MTA realtime](mta-realtime.md) for snapshot scope, timestamps, association wording, variant handling, network restrictions and tests. AISStream remains future work.
+The reviewed MTA decoder and fixed HTTPS polling transport support eight opt-in subway feed groups. See [citywide subway coverage](subway-network.md) for current scope and station handling. See [MTA realtime](mta-realtime.md) for snapshot scope, timestamps, association wording, variant handling, network restrictions and tests. AISStream remains future work.
 
 ## Status and recovered decisions
 

@@ -12,7 +12,7 @@ const { app } = await createApp({
     process.env.DATABASE_PATH ??
     resolve(
       import.meta.dirname,
-      `../../../.data/${transitSource === 'mta' ? 'geoatlas-mta' : 'geoatlas'}.sqlite`,
+      `../../../.data/${transitSource === 'mta' ? 'geoatlas-mta-citywide' : 'geoatlas'}.sqlite`,
     ),
   ...(process.env.WEB_ORIGIN
     ? { origins: process.env.WEB_ORIGIN.split(',').map((s) => s.trim()) }

@@ -2,7 +2,7 @@
 
 A local geospatial observatory built with React, TypeScript, MapLibre, Fastify, WebSockets, and SQLite.
 
-The demo shows **synthetic traffic**: six trains on A/C/E routes and three harbor vessels. The New York background comes from OpenFreeMap/OpenStreetMap; station positions and route paths come from a locally served subset of official MTA static GTFS. No API keys or provider accounts are required. Background tiles require internet access; report generation and static subway geometry run locally. Live MTA A/C/E stop associations can be enabled explicitly; the harbor layer remains synthetic.
+The demo shows **synthetic traffic**: six trains on A/C/E routes and three harbor vessels. The New York background comes from OpenFreeMap/OpenStreetMap; station positions and route paths come from a locally served subset of official MTA static GTFS. No API keys or provider accounts are required. Background tiles require internet access; report generation and static subway geometry run locally. Citywide MTA subway stop associations can be enabled explicitly; the harbor layer remains synthetic.
 
 ## Run locally
 
@@ -23,7 +23,7 @@ To use MTA transit with synthetic harbor vessels:
 TRANSIT_SOURCE=mta pnpm start
 ```
 
-Only stop associations within the Manhattan catalog are shown. The header and entity details distinguish MTA reports from synthetic traffic; markers represent associated stations, not precise train positions. See [MTA realtime](docs/mta-realtime.md) for clock semantics, coverage and source terms.
+The live catalog supports 29 route IDs and 496 GTFS station records across the subway network, including Staten Island Railway. Route filters control the map and entity list. The header and entity details distinguish MTA reports from synthetic traffic; markers represent associated stations, not precise train positions. See [MTA realtime](docs/mta-realtime.md) for clock semantics, coverage and source terms.
 
 For development with hot reload:
 
@@ -45,7 +45,7 @@ pnpm build
 - A synthetic streaming input emitting one vessel update every two seconds.
 - Strict runtime validation, source ordering, absence grace, freshness and expiry, and bounded deletion records.
 - SQLite persistence of current entities and reconciliation bookkeeping, committed before broadcast. There is no historical playback.
-- A full state snapshot on every browser connection, followed by revisioned changes. Gaps force a reconnect and resynchronization.
+- A full state snapshot on every browser connection, followed by revisioned changes. Route geometry and colors refresh against the same server epoch before new reports are displayed. Gaps force a reconnect and resynchronization.
 - Layer filters, entity search, report details, source health, and map selection.
 - Geographic New York basemap with visible attribution, official static route shapes and station positions, and an explicit route-only fallback if map tiles are unavailable.
 - Track-following 1.5-second visual transitions that hold at the last reported target. New reports retarget from the displayed position. Reduced-motion preferences place markers immediately.
@@ -70,7 +70,7 @@ Generated provider catalogs, the lockfile, build output, and the recovered docum
 
 ## Configuration
 
-The default listener is `127.0.0.1:3001`. Databases default to `.data/geoatlas.sqlite` in synthetic mode and `.data/geoatlas-mta.sqlite` in MTA mode, preserving separate checkpoints. `.env.example` lists the environment variables; `.env` files are not loaded automatically.
+The default listener is `127.0.0.1:3001`. Databases default to `.data/geoatlas.sqlite` in synthetic mode and `.data/geoatlas-mta-citywide.sqlite` in MTA mode, preserving separate checkpoints. `.env.example` lists the environment variables; `.env` files are not loaded automatically.
 
 For example, to use another port:
 
@@ -97,9 +97,9 @@ Read [system design](docs/system-design.md), [adapter contract](docs/adapter-des
 
 See [map data and provenance](docs/map-data.md) for the source dates, selected Manhattan coverage, licensing, and reproducible geometry import.
 
-MTA GTFS-Realtime stop associations are now supported with a restricted server-side transport, source-aware UI, and conservative handling of unknown paths. See [the realtime milestone](docs/mta-realtime.md).
+MTA GTFS-Realtime stop associations now cover all eight subway feed groups, with a restricted server-side transport, per-feed health, route filters, and conservative handling of unknown paths. See [citywide subway coverage](docs/subway-network.md) and [the original realtime milestone](docs/mta-realtime.md).
 
-Next: broader subway/variant coverage and AISStream. Real feeds require verified schema, timestamp meanings, licensing, limits, and trusted network/credential handling. Animation must preserve reported associations such as “at” versus “approaching”; it must not invent precise train locations.
+Next: broader variant geometry/trip matching and AISStream. Real feeds require verified schema, timestamp meanings, licensing, limits, and trusted network/credential handling. Animation must preserve reported associations such as “at” versus “approaching”; it must not invent precise train locations.
 
 A [CI template](docs/ci-template.yml) runs tests and the production build without provider credentials. To enable it, copy it to `.github/workflows/ci.yml` using GitHub access that permits workflow uploads. It is not active yet.
 

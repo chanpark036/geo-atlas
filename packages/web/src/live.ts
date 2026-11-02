@@ -5,6 +5,11 @@ import {
   type WireMessage,
 } from '@geoatlas/adapter-core';
 export type Connection = 'connecting' | 'live' | 'reconnecting';
+export interface LiveUpdate {
+  entities: TrackedEntity[];
+  snapshot: boolean;
+  epoch: string;
+}
 export class Replica {
   private epoch: string | undefined;
   private revision = 0;
@@ -12,7 +17,7 @@ export class Replica {
   reset(): void {
     this.epoch = undefined;
   }
-  apply(raw: unknown): { entities: TrackedEntity[]; snapshot: boolean } {
+  apply(raw: unknown): LiveUpdate {
     const message: WireMessage = wireMessageSchema.parse(raw);
     if (message.type === 'snapshot') {
       if (new Set(message.entities.map((e) => e.key)).size !== message.entities.length)
@@ -30,11 +35,15 @@ export class Replica {
       this.entities = next;
       this.revision = message.revision;
     }
-    return { entities: [...this.entities.values()], snapshot: message.type === 'snapshot' };
+    return {
+      entities: [...this.entities.values()],
+      snapshot: message.type === 'snapshot',
+      epoch: message.epoch,
+    };
   }
 }
 export function connectLive(
-  onEntities: (entities: TrackedEntity[], snapshot: boolean) => void,
+  onUpdate: (update: LiveUpdate) => void,
   onStatus: (status: Connection) => void,
 ): () => void {
   const replica = new Replica();
@@ -60,7 +69,7 @@ export function connectLive(
         const result = replica.apply(JSON.parse(event.data));
         attempts = 0;
         onStatus('live');
-        onEntities(result.entities, result.snapshot);
+        onUpdate(result);
       } catch {
         current.close(1002, 'Resynchronization required');
       }

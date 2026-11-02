@@ -215,7 +215,7 @@ describe('durability, freshness and bounds', () => {
     expect(state.sweep(now + 30_000)?.removed).toEqual([entityKey('test', 'a', 'a', 'one')]);
     ingest(state, snapshot([entity()], 31_000), 31_000);
     expect(records(state)).toHaveLength(0);
-    state.sweep(now + LIMITS.tombstoneTtlMs + 30_001);
+    state.sweep(now + manifest.expireAfterMs + 30_001);
     expect(Object.keys(state.checkpoint().tombstones)).toHaveLength(0);
   });
   it('rejects a batch beyond global entity capacity without partial application', () => {
@@ -232,4 +232,24 @@ describe('durability, freshness and bounds', () => {
     state.snapshot().entities[0]!.longitude = 0;
     expect(records(state)[0]?.longitude).toBe(-74);
   });
+});
+
+it('retires removal records only once every report they block is already expired', () => {
+  const state = make();
+  ingest(state, delta([entity()]));
+  ingest(state, delta([], [{ id: 'one', observedAt: iso(1000) }]), 1000);
+  state.sweep(now + 30_999);
+  expect(Object.keys(state.checkpoint().tombstones)).toHaveLength(1);
+  state.sweep(now + 31_000);
+  expect(Object.keys(state.checkpoint().tombstones)).toHaveLength(0);
+  ingest(state, delta([entity('one', 1000)]), 31_000);
+  expect(records(state)).toEqual([]);
+});
+it('does not allocate redundant deletion records for already expired entities', () => {
+  const state = make();
+  ingest(state, delta([entity()]));
+  state.sweep(now + manifest.expireAfterMs);
+  expect(Object.keys(state.checkpoint().tombstones)).toHaveLength(0);
+  ingest(state, delta([entity()]), manifest.expireAfterMs);
+  expect(records(state)).toEqual([]);
 });
