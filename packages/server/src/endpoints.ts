@@ -1,14 +1,22 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { demoCatalog, transitPayload, vesselPayload } from '@geoatlas/adapters';
+import { mtaEndpoint } from './http-source.ts';
 import type { Endpoint } from './runtime.ts';
 
 export function demoEndpoints(): ReadonlyMap<string, Endpoint> {
   const endpoints = new Map<string, Endpoint>();
-  for (const route of demoCatalog.routes) endpoints.set(`demo-${route.id.toLowerCase()}`, {
-    kind: 'poll', timeoutMs: 2_000, async read(signal) { signal.throwIfAborted(); return transitPayload(route.id); },
-  });
+  for (const route of demoCatalog.routes)
+    endpoints.set(`demo-${route.id.toLowerCase()}`, {
+      kind: 'poll',
+      timeoutMs: 2_000,
+      async read(signal) {
+        signal.throwIfAborted();
+        return transitPayload(route.id);
+      },
+    });
   endpoints.set('demo-harbor', {
-    kind: 'websocket', idleTimeoutMs: 10_000,
+    kind: 'websocket',
+    idleTimeoutMs: 10_000,
     async *open(signal) {
       while (!signal.aborted) {
         yield vesselPayload();
@@ -16,5 +24,14 @@ export function demoEndpoints(): ReadonlyMap<string, Endpoint> {
       }
     },
   });
+  return endpoints;
+}
+
+export function mtaEndpoints(): ReadonlyMap<string, Endpoint> {
+  const endpoints = new Map(demoEndpoints());
+  endpoints.delete('demo-a');
+  endpoints.delete('demo-c');
+  endpoints.delete('demo-e');
+  endpoints.set('mta-ace', mtaEndpoint());
   return endpoints;
 }

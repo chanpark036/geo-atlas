@@ -1,5 +1,7 @@
 # New York geography — 2026-10-29
 
+> Realtime update (2026-11-01): the default remains synthetic, and `TRANSIT_SOURCE=mta` now enables MTA A/C/E stop associations. See [MTA realtime](mta-realtime.md). This document records the original geography milestone.
+
 ## Scope
 
 The dashboard now combines a geographic street/shoreline basemap with a locally served subset of official MTA static GTFS station positions and route shapes. All train and vessel reports, movements and six-second/two-second timings remain synthetic. No live MTA or AISStream integration is enabled.
@@ -28,11 +30,11 @@ The importer chooses the most frequent southbound shape per A/C/E route, breakin
 
 Current coverage:
 
-| Route | Demo segment | Stations | Original shape |
-| --- | --- | --- | --- |
-| A | 59 St–Columbus Circle to Fulton St | 8 | `A..S58R` |
-| C | 59 St–Columbus Circle to Fulton St | 11 | `C..S04R` |
-| E | Lexington Av/53 St to World Trade Center | 12 | `E..S69R` |
+| Route | Demo segment                             | Stations | Original shape |
+| ----- | ---------------------------------------- | -------- | -------------- |
+| A     | 59 St–Columbus Circle to Fulton St       | 8        | `A..S58R`      |
+| C     | 59 St–Columbus Circle to Fulton St       | 11       | `C..S04R`      |
+| E     | Lexington Av/53 St to World Trade Center | 12       | `E..S69R`      |
 
 This is one representative pattern per route, not a complete service map. A and C retain their different stop sequences. Shared paths are visually offset by a few screen pixels for legibility without changing geographic coordinates.
 
@@ -52,6 +54,8 @@ pnpm test
 pnpm build
 ```
 
-Use the actual UTC retrieval date. The importer reads only specific ZIP members, bounds archive and decompressed member sizes, and does not extract files into the workspace. It requires Python 3 with only standard-library modules. Reproducing the output from the same archive and retrieval date is deterministic. Review changed source metadata, paths and stop sequences before adopting a refresh; feed updates may alter representative trips.
+Use the actual UTC retrieval date. The importer reads only specific ZIP members, bounds archive and decompressed member sizes, and does not extract files into the workspace. It requires Python 3 with only standard-library modules. Reproducing the output from the same archive and retrieval date is deterministic. The importer also records shape IDs whose selected Manhattan coordinate sequence exactly matches the representative path in either direction; those IDs govern conservative display transitions in MTA mode.
+
+Review changed source metadata, paths and stop sequences before adopting a refresh; feed updates may alter representative trips.
 
 Remaining work: complete geographic coverage, variant-aware static data for live trips, provider timestamp/association handling, MTA GTFS-Realtime decoding, approved network ingestion and AISStream.

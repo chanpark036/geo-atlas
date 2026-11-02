@@ -1,5 +1,7 @@
 # Accepted first-milestone decisions — 2026-10-29
 
+> Realtime update (2026-11-01): opt-in MTA A/C/E station associations are implemented. Harbor traffic remains synthetic. See [MTA realtime](mta-realtime.md) for current policies; historical first-milestone scope below is retained as a decision record.
+
 > Geography update: the schematic has been replaced by OpenFreeMap cartography and a locally served MTA static GTFS subset. Reports remain synthetic. See [map data and provenance](map-data.md) for the accepted next milestone and current data coverage.
 
 This document records the design review and the decisions accepted during implementation. It supplements the reconstructed system and adapter designs and supersedes their unresolved proposals where stated here. The recovered bundle remains unchanged in `geoatlas-design-documents/`.
@@ -63,16 +65,16 @@ A single SQLite row stores a versioned JSON checkpoint of current entities, snap
 
 Initial hard limits:
 
-| Resource | Limit |
-| --- | --- |
-| Input packet | 256 KiB |
-| Entities / explicit removals per batch | 500 each |
-| Current entities | 2,000 |
-| Deletion records | 4,000 |
-| Checkpoint | Less than 2 MiB, with protocol headroom |
-| Browser WebSocket clients | 32 |
-| Browser inbound frame | 1 KiB; the stream accepts no client commands |
-| Buffered browser output | 4 MiB before terminating a slow connection |
+| Resource                               | Limit                                        |
+| -------------------------------------- | -------------------------------------------- |
+| Input packet                           | 256 KiB                                      |
+| Entities / explicit removals per batch | 500 each                                     |
+| Current entities                       | 2,000                                        |
+| Deletion records                       | 4,000                                        |
+| Checkpoint                             | Less than 2 MiB, with protocol headroom      |
+| Browser WebSocket clients              | 32                                           |
+| Browser inbound frame                  | 1 KiB; the stream accepts no client commands |
+| Buffered browser output                | 4 MiB before terminating a slow connection   |
 
 Limits are enforced atomically. Increase them only with measured memory, serialization, and rendering behavior. These bounds are not a global-scale capacity claim.
 

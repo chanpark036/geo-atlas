@@ -7,3 +7,4 @@ coverage/
 !.env.example
 *.sqlite*
 .DS_Store
+.ruff_cache/

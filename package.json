@@ -11,10 +11,15 @@
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "build": "pnpm typecheck && pnpm --filter @geoatlas/web build",
-    "start": "pnpm --filter @geoatlas/server start"
+    "start": "pnpm --filter @geoatlas/server start",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "format:python": "uvx ruff@0.17.3 format scripts",
+    "format:python:check": "uvx ruff@0.17.3 format --check scripts"
   },
   "devDependencies": {
     "@types/node": "^22.19.0",
+    "prettier": "3.9.10",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },

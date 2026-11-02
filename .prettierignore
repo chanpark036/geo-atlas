@@ -1,0 +1,10 @@
+# Dependencies and generated output
+node_modules/
+**/dist/
+coverage/
+.data/
+pnpm-lock.yaml
+
+# Preserve reproducible provider artifacts and the recovered document archive
+packages/adapters/src/data/
+geoatlas-design-documents/

@@ -1,76 +1,224 @@
 import { z } from 'zod';
 
-export const LIMITS = Object.freeze({ packetBytes: 262_144, batchEntities: 500, stateEntities: 2_000, wireBytes: 2_097_152, futureSkewMs: 60_000, tombstones: 4_000, tombstoneTtlMs: 604_800_000 });
+export const LIMITS = Object.freeze({
+  packetBytes: 262_144,
+  batchEntities: 500,
+  stateEntities: 2_000,
+  wireBytes: 2_097_152,
+  futureSkewMs: 60_000,
+  tombstones: 4_000,
+  tombstoneTtlMs: 604_800_000,
+});
 export const idSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/);
-export const entityIdSchema = z.string().min(1).max(128).regex(/^[a-zA-Z0-9_ .:/-]+$/);
+export const entityIdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[a-zA-Z0-9_ .:/-]+$/);
 export const timestampSchema = z.iso.datetime();
-const text = (max: number) => z.string().min(1).max(max).refine(v => !/[<>\u0000-\u001f]/.test(v), 'Plain text required');
-const inputFields = { id: idSchema, endpointId: idSchema, scope: idSchema, semantics: z.enum(['snapshot', 'delta']) };
+const text = (max: number) =>
+  z
+    .string()
+    .min(1)
+    .max(max)
+    .refine((v) => !/[<>\u0000-\u001f]/.test(v), 'Plain text required');
+const inputFields = {
+  id: idSchema,
+  endpointId: idSchema,
+  scope: idSchema,
+  semantics: z.enum(['snapshot', 'delta']),
+};
 export const inputSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ ...inputFields, kind: z.literal('poll'), intervalMs: z.number().int().min(250).max(86_400_000) }),
+  z.strictObject({
+    ...inputFields,
+    kind: z.literal('poll'),
+    intervalMs: z.number().int().min(250).max(86_400_000),
+  }),
   z.strictObject({ ...inputFields, kind: z.literal('websocket') }),
 ]);
-export const manifestSchema = z.strictObject({
-  id: idSchema, layer: idSchema, attribution: text(256),
-  license: z.strictObject({ name: text(128), url: z.url().refine(v => v.startsWith('https://')).optional() }),
-  staleAfterMs: z.number().int().min(1_000).max(86_400_000),
-  expireAfterMs: z.number().int().min(1_000).max(604_800_000),
-  snapshotGrace: z.number().int().min(1).max(10),
-  inputs: z.array(inputSchema).min(1).max(16),
-}).superRefine((m, ctx) => {
-  if (m.expireAfterMs < m.staleAfterMs) ctx.addIssue({ code: 'custom', message: 'Expiry must follow staleness' });
-  if (new Set(m.inputs.map(i => i.id)).size !== m.inputs.length) ctx.addIssue({ code: 'custom', message: 'Duplicate input ID' });
-});
-const propertyName = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,31}$/).refine(v => !['constructor', 'prototype', '__proto__'].includes(v));
+export const manifestSchema = z
+  .strictObject({
+    id: idSchema,
+    layer: idSchema,
+    attribution: text(256),
+    license: z.strictObject({
+      name: text(128),
+      url: z
+        .url()
+        .refine((v) => v.startsWith('https://'))
+        .optional(),
+    }),
+    staleAfterMs: z.number().int().min(1_000).max(86_400_000),
+    expireAfterMs: z.number().int().min(1_000).max(604_800_000),
+    snapshotGrace: z.number().int().min(1).max(10),
+    inputs: z.array(inputSchema).min(1).max(16),
+  })
+  .superRefine((m, ctx) => {
+    if (m.expireAfterMs < m.staleAfterMs)
+      ctx.addIssue({ code: 'custom', message: 'Expiry must follow staleness' });
+    if (new Set(m.inputs.map((i) => i.id)).size !== m.inputs.length)
+      ctx.addIssue({ code: 'custom', message: 'Duplicate input ID' });
+  });
+const propertyName = z
+  .string()
+  .regex(/^[a-zA-Z][a-zA-Z0-9_]{0,31}$/)
+  .refine((v) => !['constructor', 'prototype', '__proto__'].includes(v));
 export const entitySchema = z.strictObject({
-  id: entityIdSchema, longitude: z.number().finite().min(-180).max(180), latitude: z.number().finite().min(-90).max(90),
+  id: entityIdSchema,
+  longitude: z.number().finite().min(-180).max(180),
+  latitude: z.number().finite().min(-90).max(90),
   observedAt: timestampSchema,
-  properties: z.record(propertyName, z.union([text(256), z.number().finite(), z.boolean(), z.null()]))
-    .refine(v => Object.keys(v).length <= 16, 'Too many properties'),
+  properties: z
+    .record(propertyName, z.union([text(256), z.number().finite(), z.boolean(), z.null()]))
+    .refine((v) => Object.keys(v).length <= 16, 'Too many properties'),
 });
-export const packetSchema = z.strictObject({
-  adapterId: idSchema, inputId: idSchema, scope: idSchema, receivedAt: timestampSchema,
-  payload: z.union([z.string(), z.custom<Uint8Array>(v => v instanceof Uint8Array)]),
-}).refine(p => (typeof p.payload === 'string' ? new TextEncoder().encode(p.payload).length : p.payload.byteLength) <= LIMITS.packetBytes, 'Packet too large');
-const batchFields = { inputId: idSchema, scope: idSchema, entities: z.array(entitySchema).max(LIMITS.batchEntities) };
+export const packetSchema = z
+  .strictObject({
+    adapterId: idSchema,
+    inputId: idSchema,
+    scope: idSchema,
+    receivedAt: timestampSchema,
+    payload: z.union([z.string(), z.custom<Uint8Array>((v) => v instanceof Uint8Array)]),
+  })
+  .refine(
+    (p) =>
+      (typeof p.payload === 'string'
+        ? new TextEncoder().encode(p.payload).length
+        : p.payload.byteLength) <= LIMITS.packetBytes,
+    'Packet too large',
+  );
+const batchFields = {
+  inputId: idSchema,
+  scope: idSchema,
+  entities: z.array(entitySchema).max(LIMITS.batchEntities),
+};
 export const batchSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ ...batchFields, kind: z.literal('snapshot'), complete: z.literal(true), publishedAt: timestampSchema }),
-  z.strictObject({ ...batchFields, kind: z.literal('delta'), removals: z.array(z.strictObject({ id: entityIdSchema, observedAt: timestampSchema })).max(LIMITS.batchEntities) }),
+  z.strictObject({
+    ...batchFields,
+    kind: z.literal('snapshot'),
+    complete: z.literal(true),
+    publishedAt: timestampSchema,
+  }),
+  z.strictObject({
+    ...batchFields,
+    kind: z.literal('delta'),
+    removals: z
+      .array(z.strictObject({ id: entityIdSchema, observedAt: timestampSchema }))
+      .max(LIMITS.batchEntities),
+  }),
 ]);
 export type AdapterManifest = z.infer<typeof manifestSchema>;
 export type AdapterInput = z.infer<typeof inputSchema>;
 export type GeoEntity = z.infer<typeof entitySchema>;
 export type SourcePacket = z.infer<typeof packetSchema>;
 export type AdapterBatch = z.infer<typeof batchSchema>;
-export interface DataAdapter { readonly manifest: AdapterManifest; decode(packet: SourcePacket): readonly AdapterBatch[] }
+export interface DataAdapter {
+  readonly manifest: AdapterManifest;
+  decode(packet: SourcePacket): readonly AdapterBatch[];
+}
 
 export const trackedEntitySchema = entitySchema.extend({
-  key: z.string().max(384), adapterId: idSchema, inputId: idSchema, scope: idSchema, layer: idSchema,
-  receivedAt: timestampSchema, stale: z.boolean(), missingSnapshots: z.number().int().min(0).max(10),
+  key: z.string().max(384),
+  adapterId: idSchema,
+  inputId: idSchema,
+  scope: idSchema,
+  layer: idSchema,
+  receivedAt: timestampSchema,
+  stale: z.boolean(),
+  missingSnapshots: z.number().int().min(0).max(10),
 });
 export type TrackedEntity = z.infer<typeof trackedEntitySchema>;
 export const wireMessageSchema = z.discriminatedUnion('type', [
-  z.strictObject({ protocol: z.literal(1), type: z.literal('snapshot'), epoch: z.string().uuid(), revision: z.number().int().nonnegative(), entities: z.array(trackedEntitySchema).max(LIMITS.stateEntities) }),
-  z.strictObject({ protocol: z.literal(1), type: z.literal('change'), epoch: z.string().uuid(), revision: z.number().int().positive(), upserts: z.array(trackedEntitySchema).max(LIMITS.stateEntities), removed: z.array(z.string().max(384)).max(LIMITS.stateEntities) }),
+  z.strictObject({
+    protocol: z.literal(1),
+    type: z.literal('snapshot'),
+    epoch: z.string().uuid(),
+    revision: z.number().int().nonnegative(),
+    entities: z.array(trackedEntitySchema).max(LIMITS.stateEntities),
+  }),
+  z.strictObject({
+    protocol: z.literal(1),
+    type: z.literal('change'),
+    epoch: z.string().uuid(),
+    revision: z.number().int().positive(),
+    upserts: z.array(trackedEntitySchema).max(LIMITS.stateEntities),
+    removed: z.array(z.string().max(384)).max(LIMITS.stateEntities),
+  }),
 ]);
 export type WireMessage = z.infer<typeof wireMessageSchema>;
 export type ChangeMessage = Extract<WireMessage, { type: 'change' }>;
 
-const routeSchema = z.strictObject({
-  id: z.string().min(1).max(32), name: z.string().min(1).max(128), color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-  sourceShapeId: z.string().max(128).optional(), sourceTripId: z.string().max(128).optional(),
-  coordinates: z.array(z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)])).min(2).max(2000),
-  stops: z.array(z.strictObject({ id: idSchema, gtfsStopId: z.string().max(64).optional(), name: z.string().min(1).max(128), pathIndex: z.number().int().nonnegative() })).max(100),
-}).superRefine((route, ctx) => {
-  if (new Set(route.stops.map(s => s.id)).size !== route.stops.length) ctx.addIssue({ code: 'custom', message: 'Duplicate station identity' });
-  if (route.stops.some((stop, index) => stop.pathIndex >= route.coordinates.length || (index > 0 && stop.pathIndex <= route.stops[index - 1]!.pathIndex))) ctx.addIssue({ code: 'custom', message: 'Station indices must follow the route in order' });
-});
-export const catalogSchema = z.strictObject({
-  routes: z.array(routeSchema).max(16),
-  source: z.strictObject({
-    name: z.string().max(128), url: z.url().startsWith('https://'), termsUrl: z.url().startsWith('https://'),
-    retrievedAt: z.iso.date(), archiveSha256: z.string().regex(/^[a-f0-9]{64}$/), feedVersion: z.string().max(128),
-    feedStartDate: z.string().regex(/^\d{8}$/), feedEndDate: z.string().regex(/^\d{8}$/),
-  }).optional(),
-}).refine(c => new Set(c.routes.map(r => r.id)).size === c.routes.length, 'Duplicate route identity');
+const routeSchema = z
+  .strictObject({
+    id: z.string().min(1).max(32),
+    name: z.string().min(1).max(128),
+    color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    sourceShapeId: z.string().max(128).optional(),
+    sourceTripId: z.string().max(128).optional(),
+    compatibleShapeIds: z.array(z.string().min(1).max(128)).max(300).optional(),
+    coordinates: z
+      .array(z.tuple([z.number().min(-180).max(180), z.number().min(-90).max(90)]))
+      .min(2)
+      .max(2000),
+    stops: z
+      .array(
+        z.strictObject({
+          id: idSchema,
+          gtfsStopId: z.string().max(64).optional(),
+          name: z.string().min(1).max(128),
+          pathIndex: z.number().int().nonnegative(),
+        }),
+      )
+      .max(100),
+  })
+  .superRefine((route, ctx) => {
+    if (new Set(route.stops.map((s) => s.id)).size !== route.stops.length)
+      ctx.addIssue({ code: 'custom', message: 'Duplicate station identity' });
+    if (
+      route.stops.some(
+        (stop, index) =>
+          stop.pathIndex >= route.coordinates.length ||
+          (index > 0 && stop.pathIndex <= route.stops[index - 1]!.pathIndex),
+      )
+    )
+      ctx.addIssue({ code: 'custom', message: 'Station indices must follow the route in order' });
+  });
+export const catalogSchema = z
+  .strictObject({
+    routes: z.array(routeSchema).max(16),
+    source: z
+      .strictObject({
+        name: z.string().max(128),
+        url: z.url().startsWith('https://'),
+        termsUrl: z.url().startsWith('https://'),
+        retrievedAt: z.iso.date(),
+        archiveSha256: z.string().regex(/^[a-f0-9]{64}$/),
+        feedVersion: z.string().max(128),
+        feedStartDate: z.string().regex(/^\d{8}$/),
+        feedEndDate: z.string().regex(/^\d{8}$/),
+      })
+      .optional(),
+  })
+  .refine(
+    (c) => new Set(c.routes.map((r) => r.id)).size === c.routes.length,
+    'Duplicate route identity',
+  );
 export type Catalog = z.infer<typeof catalogSchema>;
+
+export const sourceHealthSchema = z.strictObject({
+  adapterId: idSchema,
+  inputId: idSchema,
+  status: z.enum(['starting', 'healthy', 'retrying', 'stopped']),
+  lastSuccessAt: timestampSchema.nullable(),
+  lastPublishedAt: timestampSchema.nullable(),
+  failures: z.number().int().nonnegative(),
+  error: z.literal('source-update-failed').nullable(),
+});
+export const dashboardStatusSchema = z.strictObject({
+  mode: z.enum(['synthetic', 'mta']),
+  sources: z.array(sourceHealthSchema).max(256),
+  manifests: z.array(manifestSchema).max(16),
+  entities: z.number().int().nonnegative().max(LIMITS.stateEntities),
+});
+export type DashboardStatus = z.infer<typeof dashboardStatusSchema>;
+export type SourceHealth = z.infer<typeof sourceHealthSchema>;

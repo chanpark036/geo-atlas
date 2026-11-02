@@ -6,6 +6,22 @@
       "color": "#7cb4ff",
       "sourceShapeId": "A..S58R",
       "sourceTripId": "BFA26GEN-A047-Saturday-00_032950_A..S58R",
+      "compatibleShapeIds": [
+        "A..N04R",
+        "A..N54R",
+        "A..N60R",
+        "A..N82R",
+        "A..S05R",
+        "A..S51R",
+        "A..S53R",
+        "A..S56R",
+        "A..S57R",
+        "A..S58R",
+        "A..S70R",
+        "A..S74R",
+        "A..S78R",
+        "A..S87R"
+      ],
       "coordinates": [
         [
           -73.981736,
@@ -577,6 +593,11 @@
       "color": "#b19bfa",
       "sourceShapeId": "C..S04R",
       "sourceTripId": "BFA26GEN-C026-Saturday-00_035900_C..S04R",
+      "compatibleShapeIds": [
+        "C..N04R",
+        "C..S04R",
+        "C..S05R"
+      ],
       "coordinates": [
         [
           -73.981736,
@@ -1166,6 +1187,19 @@
       "color": "#78dbc0",
       "sourceShapeId": "E..S69R",
       "sourceTripId": "BFA26GEN-E043-Saturday-00_033300_E..S69R",
+      "compatibleShapeIds": [
+        "E..N05R",
+        "E..N55R",
+        "E..N57R",
+        "E..N66R",
+        "E..N72R",
+        "E..N72X004",
+        "E..N75R",
+        "E..S04R",
+        "E..S56R",
+        "E..S69R",
+        "E..S71R"
+      ],
       "coordinates": [
         [
           -73.969055,
