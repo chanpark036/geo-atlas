@@ -10,6 +10,7 @@ import {
   type DataAdapter,
   type SourcePacket,
 } from '@geoatlas/adapter-core';
+import { subwayStationHeadings } from './station-headings.ts';
 
 const safeText = z
   .string()
@@ -168,6 +169,14 @@ export function createMtaAdapter(catalog: Catalog): DataAdapter {
             lastMovementAt: movementMs === null ? null : new Date(movementMs).toISOString(),
             animation:
               primaryStop && route.compatibleShapeIds?.includes(pattern) ? 'track' : 'fade',
+            bearing: subwayStationHeadings.get(
+              catalog.source?.archiveSha256,
+              route.id,
+              pattern,
+              vehicle.stopId,
+              longitude,
+              latitude,
+            ),
           },
         });
       }

@@ -41,6 +41,14 @@ Route buttons filter train markers, the entity list, static route lines and stat
 
 The map fits the full geographic station extent at startup in MTA mode. “Fit network” restores that view; “Locate selected” zooms to a report anchor. Stations are rendered as a bounded GeoJSON layer rather than hundreds of HTML labels. Only the selected reported station gets an HTML label. Source health is per feed, with clear retry/delay notices that do not imply all other feeds failed.
 
+Train dots carry a small **arrowhead** aligned to the local track tangent, allowing any compass direction. During a verified track transition, the report's service direction and the shape's published stop-direction suffixes determine travel order; northbound does not necessarily mean geographically north. At station anchors, the decoder supplies a normalized `bearing` in clockwise degrees from north using the trip variant's static geometry. The angle stays aligned when the map rotates. This is an orientation derived from static track geometry, not a measured vehicle heading or a prediction of movement. Unresolved headings remain plain dots; vessel dots remain independent.
+
+`packages/adapters/src/data/subway-headings.json` contains station angles for **261 route/shape pairs** from the same reviewed archive, including branches and variants outside the representative transition paths. It stays on the server; browsers receive only a numeric bearing or `null` per report. A known trip pattern must contain that platform. When the live pattern is absent from the archive, a fallback is allowed only if all published variants serving that route/platform have known headings within 20 degrees of one another, using circular angle comparisons. Ambiguous variants block that fallback. The archive fingerprint and exact station anchor must match the active catalog.
+
+The offline importer uses the departing shape segment at a station, or the arriving segment at a terminal, skipping duplicate vertices. A station slightly off a shape may use a segment within 10 meters; equally close conflicting segments and ambiguous loop occurrences remain unknown. Runtime validation bounds the artifact to 512 route/shape pairs, 100 platform headings per pair, and 1,000 station anchors, with unique identities and valid station references. Current input, entity-property, state and browser-message limits are unchanged.
+
+Knowing a local station heading does not establish the complete route between two reports. Unverified transitions still fade. The old arrow remains paired with the old anchor until the invisible midpoint, then the new arrow appears at the new station. Verified transitions rotate the arrow along the animated path. Locally drawn MapLibre artwork shares the train's opacity and works in the route-only fallback without a remote font service.
+
 ## Reconnect catalog synchronization
 
 The catalog HTTP response carries `X-GeoAtlas-Epoch`, matching the epoch of the WebSocket snapshot. On every initial or reconnect snapshot, the browser fetches `/api/catalog` with `cache: no-store` and verifies that epoch before publishing the new reports and geometry together. Updates arriving during the request replace a single pending current-state view rather than accumulating an unbounded queue.
@@ -70,6 +78,8 @@ The citywide MTA checkpoint defaults to `.data/geoatlas-mta-citywide.sqlite`. Th
 
 ```sh
 python3 scripts/import-subway-network.py /tmp/geoatlas-gtfs-subway.zip --retrieved-at YYYY-MM-DD
+python3 scripts/import-subway-headings.py /tmp/geoatlas-gtfs-subway.zip --retrieved-at YYYY-MM-DD
+python3 -m unittest discover -s scripts -p 'test_*.py'
 pnpm format:python:check
 pnpm test
 pnpm build
@@ -79,6 +89,6 @@ Use the official archive and actual retrieval date described in [map data](map-d
 
 ## Verification and remaining work
 
-Offline tests cover every feed group, global station/branch coverage, detours, input isolation, invalid snapshots, filters, viewport bounds, catalogue validation, and safe removal-record retirement. Live smoke checks exercised all eight restricted transports and the shared state manager. Tests and builds never fetch provider data.
+Offline tests cover every feed group, global station/branch coverage, detours, input isolation, invalid snapshots, filters, viewport bounds, catalogue validation, safe removal-record retirement, variant-specific headings, circular consensus, ambiguous geometry, and heading/anchor pairing during fades and reconnects. Live smoke checks exercised all eight restricted transports and the shared state manager. Tests and builds never fetch provider data.
 
-Remaining: full variant geometry and trip matching, station/route detail improvements, and AISStream. Neither this change nor its source data guarantees that every physical train is represented.
+Remaining: full variant transition geometry and trip matching, station/route detail improvements, and AISStream. Neither this change nor its source data guarantees that every physical train is represented.

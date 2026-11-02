@@ -212,6 +212,22 @@ it('places branch or shape-mismatched stations at their real coordinates and use
   expect(entity.properties.pathIndex).toBeNull();
   expect(entity.properties.animation).toBe('fade');
 });
+
+it('supplies a variant-specific station angle even when the representative transition path is unavailable', async () => {
+  const { networkCatalog } = await import('./index.ts');
+  const p = packet(
+    feed([
+      vehicle({
+        stopId: 'A10N',
+        trip: { routeId: 'A', tripId: '090000_A..N04R', startDate: '20261101' },
+      }),
+    ]),
+  );
+  const entity = createMtaAdapter(networkCatalog).decode(p)[0]!.entities[0]!;
+  expect(entity.properties.animation).toBe('fade');
+  expect(entity.properties.pathIndex).toBeNull();
+  expect(entity.properties.bearing).toBeCloseTo(353.3);
+});
 it('isolates disappearance reconciliation across feed groups', async () => {
   const { networkCatalog } = await import('./index.ts');
   const network = createMtaAdapter(networkCatalog),
@@ -254,5 +270,6 @@ it('retains detoured trains at a known station outside their static route member
   const entity = createMtaAdapter(networkCatalog).decode(p)[0]!.entities[0]!;
   expect(entity.properties.route).toBe('A');
   expect(entity.properties.animation).toBe('fade');
+  expect(entity.properties.bearing).toBeNull();
   expect([entity.longitude, entity.latitude]).toEqual([station.longitude, station.latitude]);
 });

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, {
   type GeoJSONSource,
+  type ExpressionSpecification,
   type Map as MapType,
   type StyleSpecification,
 } from 'maplibre-gl';
@@ -13,6 +14,7 @@ import {
 } from '@geoatlas/adapter-core';
 import { MotionLayer } from './motion';
 import { entityColor, networkBounds, routeFeatures, stationFeatures } from './layers';
+import { addTrainDirectionImage } from './train-direction';
 
 interface Props {
   catalog: Catalog;
@@ -25,6 +27,11 @@ interface Props {
   visibleRoutes: readonly string[];
 }
 type BasemapStatus = 'loading' | 'ready' | 'unavailable' | 'partial';
+const entityOpacity: ExpressionSpecification = [
+  '*',
+  ['get', 'opacity'],
+  ['case', ['get', 'stale'], 0.35, 1],
+];
 const routeOnlyStyle = (): StyleSpecification => ({
   version: 8,
   sources: {},
@@ -196,12 +203,34 @@ export function MapView({
         type: 'circle',
         source: 'entities',
         paint: {
-          'circle-radius': ['case', ['get', 'selected'], 8, 6],
+          'circle-radius': [
+            'case',
+            ['==', ['get', 'layer'], 'subway'],
+            ['case', ['get', 'selected'], 10, 8],
+            ['case', ['get', 'selected'], 8, 6],
+          ],
           'circle-color': ['get', 'color'],
           'circle-stroke-color': '#e3f1f4',
           'circle-stroke-width': 1.5,
-          'circle-opacity': ['*', ['get', 'opacity'], ['case', ['get', 'stale'], 0.35, 1]],
+          'circle-opacity': entityOpacity,
+          'circle-stroke-opacity': entityOpacity,
         },
+      });
+      addTrainDirectionImage(instance);
+      instance.addLayer({
+        id: 'train-directions',
+        type: 'symbol',
+        source: 'entities',
+        filter: ['all', ['==', ['get', 'layer'], 'subway'], ['!=', ['get', 'bearing'], null]],
+        layout: {
+          'icon-image': 'train-arrowhead',
+          'icon-rotate': ['get', 'bearing'],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
+          'icon-rotation-alignment': 'map',
+          'icon-pitch-alignment': 'viewport',
+        },
+        paint: { 'icon-opacity': entityOpacity },
       });
       dirty.current = true;
       setReady(true);
@@ -223,11 +252,13 @@ export function MapView({
       if (instance.getSource('entities') && (dirty.current || motion.moving(now))) {
         const data: FeatureCollection<Point> = {
           type: 'FeatureCollection',
-          features: motion.points(now).map(({ entity, point, opacity }) => ({
+          features: motion.points(now).map(({ entity, point, opacity, bearing }) => ({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: point },
             properties: {
               key: entity.key,
+              layer: entity.layer,
+              bearing,
               opacity,
               stale: entity.stale,
               selected: entity.key === current.current.selected,

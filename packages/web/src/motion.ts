@@ -1,7 +1,13 @@
 import type { Catalog, TrackedEntity } from '@geoatlas/adapter-core';
+import {
+  bearingAtIndex,
+  routeDirection,
+  trainDirection,
+  type ServiceDirection,
+} from './train-direction';
 export type Point = [number, number];
 type Route = Catalog['routes'][number];
-type Path = { route: Route; distances: number[] };
+type Path = { route: Route; distances: number[]; direction: ServiceDirection | null };
 type Motion = {
   entity: TrackedEntity;
   from: Point;
@@ -14,7 +20,20 @@ type Motion = {
   duration: number;
   fade: boolean;
   fromOpacity: number;
+  fromBearing: number | null;
 };
+type MotionSample = { point: Point; distance: number | undefined; opacity: number };
+
+function reportedBearing(entity: TrackedEntity): number | null {
+  const bearing = entity.properties.bearing;
+  return entity.layer === 'subway' &&
+    typeof bearing === 'number' &&
+    Number.isFinite(bearing) &&
+    bearing >= 0 &&
+    bearing < 360
+    ? bearing
+    : null;
+}
 const ease = (t: number) => t * t * (3 - 2 * t);
 export function pointAlong(coordinates: Point[], index: number): Point {
   const clamped = Math.min(coordinates.length - 1, Math.max(0, index));
@@ -35,11 +54,10 @@ function distancesAlong(coordinates: Point[]): number[] {
   }
   return distances;
 }
-function pointAtDistance(path: Path, distance: number): Point {
+function indexAtDistance(path: Path, distance: number): number {
   const { distances, route } = path;
-  if (distance <= 0) return route.coordinates[0]!;
-  if (distance >= distances[distances.length - 1]!)
-    return route.coordinates[route.coordinates.length - 1]!;
+  if (distance <= 0) return 0;
+  if (distance >= distances[distances.length - 1]!) return route.coordinates.length - 1;
   let low = 0,
     high = distances.length - 1;
   while (high - low > 1) {
@@ -48,7 +66,7 @@ function pointAtDistance(path: Path, distance: number): Point {
     else high = mid;
   }
   const length = distances[high]! - distances[low]!;
-  return pointAlong(route.coordinates, low + (length ? (distance - distances[low]!) / length : 0));
+  return low + (length ? (distance - distances[low]!) / length : 0);
 }
 /** Display-only transitions. Never extrapolates beyond a reported target. */
 export class MotionLayer {
@@ -61,7 +79,7 @@ export class MotionLayer {
     this.paths = new Map(
       catalog.routes.map((route) => [
         route.id,
-        { route, distances: distancesAlong(route.coordinates) },
+        { route, distances: distancesAlong(route.coordinates), direction: routeDirection(route) },
       ]),
     );
   }
@@ -74,7 +92,12 @@ export class MotionLayer {
         !reset &&
         previous &&
         previous.entity.longitude === entity.longitude &&
-        previous.entity.latitude === entity.latitude
+        previous.entity.latitude === entity.latitude &&
+        previous.entity.layer === entity.layer &&
+        previous.entity.properties.route === entity.properties.route &&
+        previous.entity.properties.pathIndex === entity.properties.pathIndex &&
+        previous.entity.properties.animation === entity.properties.animation &&
+        previous.entity.properties.source === entity.properties.source
       ) {
         previous.entity = entity;
         continue;
@@ -121,23 +144,53 @@ export class MotionLayer {
         duration: direct ? 0 : 1_500,
         fade,
         fromOpacity: sampled?.opacity ?? 1,
+        fromBearing: previous && sampled ? this.heading(previous, sampled, now) : null,
       });
     }
   }
-  points(now: number): { entity: TrackedEntity; point: Point; opacity: number }[] {
-    return [...this.records.values()].map((motion) => ({
-      entity: motion.entity,
-      point: this.sampleMotion(motion, now).point,
-      opacity: this.sampleMotion(motion, now).opacity,
-    }));
+  points(now: number): {
+    entity: TrackedEntity;
+    point: Point;
+    opacity: number;
+    bearing: number | null;
+  }[] {
+    return [...this.records.values()].map((motion) => {
+      const sampled = this.sampleMotion(motion, now);
+      return {
+        entity: motion.entity,
+        point: sampled.point,
+        opacity: sampled.opacity,
+        bearing: this.heading(motion, sampled, now),
+      };
+    });
   }
   moving(now: number): boolean {
     return [...this.records.values()].some((motion) => now - motion.started < motion.duration);
   }
-  private sampleMotion(
-    motion: Motion,
-    now: number,
-  ): { point: Point; distance: number | undefined; opacity: number } {
+  private heading(motion: Motion, sampled: MotionSample, now: number): number | null {
+    // Keep the old anchor's angle until relocation happens at zero opacity.
+    if (motion.fade && now < motion.started + motion.duration / 2) return motion.fromBearing;
+    const path = motion.path ?? motion.targetPath;
+    const direction = trainDirection(motion.entity);
+    if (
+      path?.direction &&
+      direction &&
+      sampled.distance !== undefined &&
+      (motion.entity.properties.source !== 'mta' || motion.entity.properties.animation === 'track')
+    ) {
+      const bearing = bearingAtIndex(
+        path.route.coordinates,
+        indexAtDistance(path, sampled.distance),
+        direction === path.direction ? 1 : -1,
+      );
+      if (bearing !== null) return bearing;
+    }
+    // A station's variant-specific angle can be known even when we cannot
+    // verify the full path between the old and new reports.
+    const atTarget = now >= motion.started + motion.duration || motion.fade;
+    return atTarget ? reportedBearing(motion.entity) : null;
+  }
+  private sampleMotion(motion: Motion, now: number): MotionSample {
     const progress = motion.duration
       ? Math.max(0, Math.min(1, (now - motion.started) / motion.duration))
       : 1;
@@ -155,7 +208,10 @@ export class MotionLayer {
     if (motion.path && motion.fromDistance !== undefined && motion.toDistance !== undefined) {
       const distance = motion.fromDistance + (motion.toDistance - motion.fromDistance) * t;
       return {
-        point: t === 1 ? motion.to : pointAtDistance(motion.path, distance),
+        point:
+          t === 1
+            ? motion.to
+            : pointAlong(motion.path.route.coordinates, indexAtDistance(motion.path, distance)),
         distance,
         opacity: 1,
       };

@@ -404,6 +404,12 @@ function App() {
             </div>
           )}
           <div className="map-footer">
+            <span title="Arrowheads show track direction at the displayed location. Plain dots have no known heading.">
+              <b className="direction-key" aria-hidden="true">
+                ▴
+              </b>
+              Track direction
+            </span>
             <span>
               <i className="legend-dot" />
               Station / report anchor

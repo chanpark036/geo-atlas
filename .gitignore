@@ -8,3 +8,4 @@ coverage/
 *.sqlite*
 .DS_Store
 .ruff_cache/
+__pycache__/

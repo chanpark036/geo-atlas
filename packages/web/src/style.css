@@ -502,6 +502,10 @@ h1 > span {
   border-radius: 50%;
   background: #abc9db;
 }
+.direction-key {
+  color: #e3f1f4;
+  font-size: 10px;
+}
 .stale-dot {
   opacity: 0.35;
 }
