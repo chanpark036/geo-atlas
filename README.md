@@ -1,8 +1,8 @@
 # GeoAtlas
 
-A local geospatial observatory built with React, TypeScript, MapLibre, Fastify, WebSockets, and SQLite.
+A geospatial observatory with live MTA subway ingestion, durable current-state reconciliation, and a historical Parquet/DuckDB analysis pipeline. Built with React, TypeScript, MapLibre, Fastify, WebSockets, SQLite, and Python.
 
-The demo shows **synthetic traffic**: six trains on A/C/E routes and three harbor vessels. The New York background comes from OpenFreeMap/OpenStreetMap; station positions and route paths come from a locally served subset of official MTA static GTFS. No API keys or provider accounts are required. Background tiles require internet access; report generation and static subway geometry run locally. Citywide MTA subway stop associations can be enabled explicitly; the harbor layer remains synthetic.
+MTA mode ingests eight feed groups covering 29 route IDs, maps reported station associations, and records raw feeds for historical processing. The default offline demo uses six synthetic trains on A/C/E routes and three harbor vessels; harbor traffic remains synthetic in both modes. The New York background comes from OpenFreeMap/OpenStreetMap and subway geometry comes from official MTA static GTFS. No API keys or provider accounts are required.
 
 ## Run locally
 
@@ -41,14 +41,37 @@ pnpm build
 
 ## What works
 
+- Eight live MTA feed groups with independent reconciliation and source health, covering 29 subway route IDs.
 - Independent complete transit snapshots every six seconds, with two trains per synthetic route.
 - A synthetic streaming input emitting one vessel update every two seconds.
 - Strict runtime validation, source ordering, absence grace, freshness and expiry, and bounded deletion records.
-- SQLite persistence of current entities and reconciliation bookkeeping, committed before broadcast. There is no historical playback.
+- SQLite persistence of current entities and reconciliation bookkeeping, committed before broadcast.
+- Bounded raw-feed recording in MTA mode, idempotent conversion/backfills to Parquet, and DuckDB data-quality and prediction-revision reports. Historical processing is separate from the live dashboard; there is no playback UI.
 - A full state snapshot on every browser connection, followed by revisioned changes. Route geometry and colors refresh against the same server epoch before new reports are displayed. Gaps force a reconnect and resynchronization.
 - Layer filters, entity search, report details, source health, and map selection.
 - Geographic New York basemap with visible attribution, official static route shapes and station positions, and an explicit route-only fallback if map tiles are unavailable.
 - Track-following 1.5-second visual transitions that hold at the last reported target. New reports retarget from the displayed position. Reduced-motion preferences place markers immediately.
+
+## Reconciliation and recovery
+
+Complete snapshots are ordered by provider publication time within each feed. Failed, malformed and repeated snapshots cannot clear valid state or advance absence grace. Two newer valid snapshots omitting a train remove it; freshness and expiry use explicit source clocks. Removal records block late observations until the expiry rule itself makes replay impossible.
+
+SQLite durably saves accepted state before changes are broadcast. Every browser connection starts with a complete snapshot; revision gaps force a reconnect. After a server restart, persisted ordering survives while a new stream epoch ensures clients resynchronize. [Design decisions](docs/implementation-decisions.md) describe the contracts and bounds.
+
+## Historical data
+
+MTA mode records raw packets automatically while running. Check recording health at `/api/archive/status`. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) for the optional offline jobs, then:
+
+```sh
+uv sync --project analytics --frozen
+pnpm history import
+pnpm history analyze
+pnpm test:python
+```
+
+Reports are written to `.data/history/reports/latest.json`. The [historical pipeline guide](docs/history.md) covers public backfills, storage limits, rerun safety, timestamp meanings and SQL views. Prediction revisions are explicitly distinguished from actual arrival delays.
+
+A [recorded backfill benchmark](docs/benchmarks/history-sample.json) converted and analyzed 320,494 prediction observations from one G-train hour in 28.3 seconds, including scanning the 6.82 GB expanded daily archive. This is one local sample; network download time is excluded. The guide distinguishes scanned bytes from the selected data actually normalized.
 
 ## Code formatting
 
@@ -84,12 +107,13 @@ The demo has no authentication and is intended for local use. Public hosting nee
 
 ## Project structure
 
-| Package                 | Responsibility                                                                      |
-| ----------------------- | ----------------------------------------------------------------------------------- |
-| `packages/adapter-core` | Runtime schemas, normalization contract, state reconciliation, and browser protocol |
-| `packages/adapters`     | Synthetic provider decoders, payload generators, and route catalog                  |
-| `packages/server`       | Trusted endpoint registry, polling/streaming runtime, SQLite, HTTP, and WebSockets  |
-| `packages/web`          | React dashboard, MapLibre layers, browser replica, and display-only animation       |
+| Package                 | Responsibility                                                                         |
+| ----------------------- | -------------------------------------------------------------------------------------- |
+| `packages/adapter-core` | Runtime schemas, normalization contract, state reconciliation, and browser protocol    |
+| `packages/adapters`     | MTA and synthetic decoders, provenance-tracked subway geometry and station headings    |
+| `packages/server`       | Trusted transports, ingestion, SQLite checkpoints, raw archives, HTTP and WebSockets   |
+| `packages/web`          | React dashboard, MapLibre layers, browser replica, and display-only animation          |
+| `analytics`             | Pinned Python jobs for historical backfills, typed Parquet datasets and DuckDB reports |
 
 ## Design and next steps
 
@@ -101,7 +125,7 @@ MTA GTFS-Realtime stop associations now cover all eight subway feed groups, with
 
 Next: broader variant geometry/trip matching and AISStream. Real feeds require verified schema, timestamp meanings, licensing, limits, and trusted network/credential handling. Animation must preserve reported associations such as “at” versus “approaching”; it must not invent precise train locations.
 
-A [CI template](docs/ci-template.yml) runs tests and the production build without provider credentials. To enable it, copy it to `.github/workflows/ci.yml` using GitHub access that permits workflow uploads. It is not active yet.
+A [CI template](docs/ci-template.yml) runs TypeScript/Python tests, formatting checks and the production build without provider credentials. To enable it, copy it to `.github/workflows/ci.yml` using GitHub access that permits workflow uploads. It is not active yet.
 
 `geoatlas-design-documents/` preserves the original recovered document bundle. It is historical reference; `docs/` is the working specification.
 

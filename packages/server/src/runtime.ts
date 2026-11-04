@@ -6,6 +6,7 @@ import {
   type StateManager,
   type SourceHealth,
 } from '@geoatlas/adapter-core';
+import type { CaptureOutcome, RawArchive } from './archive.ts';
 
 type Payload = string | Uint8Array;
 export type Endpoint =
@@ -24,6 +25,7 @@ export class IngestionRuntime {
     private readonly endpoints: ReadonlyMap<string, Endpoint>,
     private readonly publish: (change: ChangeMessage) => void,
     private readonly random = Math.random,
+    private readonly archive?: RawArchive,
   ) {
     for (const manifest of state.manifests)
       for (const input of manifest.inputs) {
@@ -68,13 +70,22 @@ export class IngestionRuntime {
     )
       throw new Error('Oversize payload');
     const receivedAt = new Date().toISOString();
-    const change = this.state.ingest({
-      adapterId: manifest.id,
-      inputId: input.id,
-      scope: input.scope,
-      receivedAt,
-      payload,
-    });
+    let outcome: CaptureOutcome = 'rejected';
+    let change: ChangeMessage | null;
+    try {
+      change = this.state.ingest({
+        adapterId: manifest.id,
+        inputId: input.id,
+        scope: input.scope,
+        receivedAt,
+        payload,
+      });
+      outcome = change ? 'changed' : 'unchanged';
+    } finally {
+      if (manifest.id === 'mta-subway' && payload instanceof Uint8Array) {
+        this.archive?.record(input.id, receivedAt, outcome, payload);
+      }
+    }
     if (change) this.publish(change);
     const health = this.health.get(`${manifest.id}|${input.id}`)!;
     health.status = 'healthy';
@@ -93,15 +104,14 @@ export class IngestionRuntime {
     while (!signal.aborted) {
       const attempt = new AbortController();
       const combined = AbortSignal.any([signal, attempt.signal]);
+      let received = false;
       try {
         if (endpoint.kind === 'poll') {
           const timeout = AbortSignal.timeout(endpoint.timeoutMs);
           const requestSignal = AbortSignal.any([combined, timeout]);
-          this.accept(
-            manifest,
-            input,
-            await abortable(endpoint.read(requestSignal), requestSignal),
-          );
+          const payload = await abortable(endpoint.read(requestSignal), requestSignal);
+          received = true;
+          this.accept(manifest, input, payload);
         } else {
           const iterator = endpoint.open(combined)[Symbol.asyncIterator]();
           try {
@@ -123,6 +133,9 @@ export class IngestionRuntime {
         await delay(input.kind === 'poll' ? input.intervalMs : 1_000, undefined, { signal });
       } catch {
         if (signal.aborted) break;
+        if (!received && manifest.id === 'mta-subway') {
+          this.archive?.record(input.id, new Date().toISOString(), 'fetch_error');
+        }
         health.status = 'retrying';
         health.error = 'source-update-failed';
         health.failures++;

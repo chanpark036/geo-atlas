@@ -1,0 +1,47 @@
+{
+  "measured_at": "2026-11-03T20:04:08.882220+00:00",
+  "benchmark": "historical ETL and canonical DuckDB report; download excluded",
+  "source_file": "subwaydatanyc_2026-10-31_gtfsrt.tar.xz",
+  "source_sha256": "1280ef06d1eb3c5849e548ac83f31c8a31be8b988130f3508af763e179c03c6e",
+  "feed": "g",
+  "capture_hour_utc": 12,
+  "compressed_input_bytes": 56226528,
+  "scanned_archive_bytes": 6824557056,
+  "selected_payload_bytes": 7515301,
+  "parquet_bytes": 11983970,
+  "conversion_seconds": 27.3568,
+  "analysis_seconds": 0.9068,
+  "total_seconds": 28.2636,
+  "peak_process_rss_bytes": 437977088,
+  "machine": {
+    "os": "Darwin",
+    "architecture": "arm64",
+    "python": "3.12.15",
+    "duckdb": "1.4.3",
+    "duckdb_memory_limit": "256MB",
+    "duckdb_threads": 2
+  },
+  "summary": {
+    "captures": 480,
+    "invalid_packets": 0,
+    "fetch_errors": 0,
+    "live_rejected_captures": 0,
+    "captured_payload_bytes": 7515301,
+    "stale_publications": 0,
+    "future_publications": 0,
+    "prediction_observations": 320494,
+    "vehicle_observations": 9338,
+    "conflicting_publications": 0,
+    "repeated_publications": 0
+  },
+  "prediction_revisions": [
+    {
+      "route_id": "G",
+      "publication_hour_utc": 12,
+      "comparisons": 319304,
+      "revised_predictions": 29774,
+      "mean_absolute_revision_seconds": 1.7,
+      "p95_absolute_revision_seconds": 12.0
+    }
+  ]
+}

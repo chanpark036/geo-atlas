@@ -20,4 +20,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm test
+      - run: |
+          python3 -m venv "$RUNNER_TEMP/geoatlas-tools"
+          "$RUNNER_TEMP/geoatlas-tools/bin/pip" install uv==0.13.5 ruff==0.17.3
+          echo "$RUNNER_TEMP/geoatlas-tools/bin" >> "$GITHUB_PATH"
+      - run: uv sync --project analytics --frozen --python 3.12
+      - run: ruff format --check scripts analytics
+      - run: pnpm test:python
       - run: pnpm build

@@ -23,6 +23,7 @@ import type { WebSocket } from 'ws';
 import { demoEndpoints, mtaEndpoints } from './endpoints.ts';
 import { IngestionRuntime, type Endpoint } from './runtime.ts';
 import { SqliteStore } from './store.ts';
+import { RawArchive } from './archive.ts';
 
 export interface AppOptions {
   transitSource?: 'synthetic' | 'mta';
@@ -33,6 +34,8 @@ export interface AppOptions {
   adapters?: readonly DataAdapter[];
   endpoints?: ReadonlyMap<string, Endpoint>;
   catalog?: Catalog;
+  archiveDirectory?: string;
+  archiveMaxBytes?: number;
 }
 export async function createApp(options: AppOptions = {}) {
   const app = Fastify({ logger: false, bodyLimit: 1024, requestTimeout: 10_000 });
@@ -74,10 +77,15 @@ export async function createApp(options: AppOptions = {}) {
     const payload = JSON.stringify(change);
     for (const socket of peers.keys()) send(socket, payload);
   };
+  const archive = options.archiveDirectory
+    ? new RawArchive(options.archiveDirectory, options.archiveMaxBytes)
+    : undefined;
   const runtime = new IngestionRuntime(
     state,
     options.endpoints ?? (mode === 'mta' ? mtaEndpoints() : demoEndpoints()),
     publish,
+    Math.random,
+    archive,
   );
   await app.register(websocket, { options: { maxPayload: 1024, perMessageDeflate: false } });
   app.addHook('onSend', async (_request, reply) => {
@@ -90,6 +98,11 @@ export async function createApp(options: AppOptions = {}) {
     );
   });
   app.get('/api/health', () => ({ ok: true, mode }));
+  app.get('/api/archive/status', (_request, reply) => {
+    const status = archive?.status();
+    if (status?.error || status?.state === 'paused') reply.code(503);
+    return status ?? { enabled: false };
+  });
   app.get('/api/snapshot', () => state.snapshot());
   app.get('/api/catalog', (_request, reply) => {
     reply.header('X-GeoAtlas-Epoch', epoch);
@@ -151,6 +164,7 @@ export async function createApp(options: AppOptions = {}) {
     clearInterval(sweep);
     clearInterval(heartbeat);
     await runtime.stop();
+    await archive?.close();
     for (const socket of peers.keys()) socket.terminate();
     peers.clear();
   });
@@ -159,5 +173,5 @@ export async function createApp(options: AppOptions = {}) {
   });
   if (options.startRuntime !== false) runtime.start();
   await app.ready();
-  return { app, state, runtime, publish };
+  return { app, state, runtime, publish, archive };
 }

@@ -1,5 +1,8 @@
 # Dependencies and generated output
 node_modules/
+**/.venv/
+**/__pycache__/
+analytics/uv.lock
 **/dist/
 coverage/
 .data/

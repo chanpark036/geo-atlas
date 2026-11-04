@@ -101,6 +101,10 @@ The New York background uses OpenFreeMap; station positions and route paths are 
 
 `TRANSIT_SOURCE=mta` selects eight grouped subway polling inputs behind a fixed, restricted server-side HTTPS transport. See [citywide subway coverage](subway-network.md) for the 29-route catalog, station coverage, filters and current persistence policy. Stop associations use feed publication time, preserve provider status wording and fall back to fades for unknown paths. Harbor traffic remains synthetic. See [MTA realtime](mta-realtime.md).
 
+## Historical data milestone
+
+SQLite continues to own durable live state. A bounded asynchronous recorder captures original MTA packets separately, and explicit Python jobs produce versioned Parquet observations and DuckDB reports. Historical processing preserves provider publication, original capture and import clocks and cannot advance live state. See [historical data](history.md) for the accepted design, failure behavior and reproduction commands.
+
 ## 9. Recovery provenance
 
 Available evidence: five accessible conversation turns, including the adapter design response, project transfer guidance and complete AGENTS.md example. No attached original Markdown, Word file or original security ADR was returned. This is a usable reconstructed baseline and should be reconciled if originals become available.

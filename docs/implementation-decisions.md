@@ -1,5 +1,7 @@
 # Accepted first-milestone decisions — 2026-10-29
 
+> Historical update (2026-11-03): the accepted next milestone adds raw-feed recording and offline Parquet/DuckDB analysis alongside SQLite. This extends the original current-state-only scope; it does not replace the live checkpoint or add dashboard playback. See [historical pipeline](history.md).
+
 > Citywide update: [subway coverage](subway-network.md) now spans eight feed groups. Removal records retire at their proven expiry boundary, superseding the original fixed-week proposal while retaining replay protection and capacity limits.
 
 > Realtime update (2026-11-01): opt-in MTA A/C/E station associations are implemented. Harbor traffic remains synthetic. See [MTA realtime](mta-realtime.md) for current policies; historical first-milestone scope below is retained as a decision record.
