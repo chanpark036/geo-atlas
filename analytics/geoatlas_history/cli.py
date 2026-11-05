@@ -9,6 +9,7 @@ from tarfile import TarError
 
 import duckdb
 
+from .accuracy import evaluate_accuracy
 from .backfill import fetch_day
 from .benchmark import benchmark
 from .captures import FEEDS
@@ -56,6 +57,13 @@ def main():
     report.add_argument('--output', type=Path, default=ROOT / 'reports/latest.json')
     report.add_argument('--date', help='UTC capture date YYYY-MM-DD')
     report.add_argument('--feed', choices=sorted(FEEDS))
+    accuracy = commands.add_parser(
+        'accuracy', help='Compare arrival-field forecasts with inferred reported-stop windows'
+    )
+    accuracy.add_argument('--dataset', type=Path, default=ROOT / 'parquet')
+    accuracy.add_argument('--output', type=Path, default=ROOT / 'reports/accuracy.json')
+    accuracy.add_argument('--date', help='UTC capture date YYYY-MM-DD')
+    accuracy.add_argument('--feed', choices=sorted(FEEDS))
     args = parser.parse_args()
     try:
         if args.command == 'fetch-day':
@@ -70,12 +78,12 @@ def main():
                 args.max_rows,
                 args.max_dataset_bytes,
             )
-        elif args.command in {'analyze', 'benchmark'}:
-            result = (
-                analyze(args.dataset, args.date, args.feed)
-                if args.command == 'analyze'
-                else benchmark(args.file, args.feed, args.hour, args.max_rows)
-            )
+        elif args.command in {'analyze', 'accuracy', 'benchmark'}:
+            if args.command == 'benchmark':
+                result = benchmark(args.file, args.feed, args.hour, args.max_rows)
+            else:
+                job = analyze if args.command == 'analyze' else evaluate_accuracy
+                result = job(args.dataset, args.date, args.feed)
             args.output.parent.mkdir(parents=True, exist_ok=True)
             temporary = args.output.with_name(f'.{args.output.name}-{uuid.uuid4()}.pending')
             temporary.write_text(json.dumps(result, indent=2) + '\n')

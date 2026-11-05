@@ -66,10 +66,13 @@ MTA mode records raw packets automatically while running. Check recording health
 uv sync --project analytics --frozen
 pnpm history import
 pnpm history analyze
+pnpm history accuracy
 pnpm test:python
 ```
 
 Reports are written to `.data/history/reports/latest.json`. The [historical pipeline guide](docs/history.md) covers public backfills, storage limits, rerun safety, timestamp meanings and SQL views. Prediction revisions are explicitly distinguished from actual arrival delays.
+
+`accuracy` writes a separate `accuracy.json` report comparing MTA arrival-field timestamps with inferred feed-reported stop windows. It includes mean/median discrepancy, bias, variance and standard-deviation bounds, p95, timing uncertainty, forecast horizons and match coverage. MTA's arrival field can represent transit time at intermediate stops, so this proxy comparison does not establish physical arrival accuracy.
 
 A [recorded backfill benchmark](docs/benchmarks/history-sample.json) converted and analyzed 320,494 prediction observations from one G-train hour in 28.3 seconds, including scanning the 6.82 GB expanded daily archive. This is one local sample; network download time is excluded. The guide distinguishes scanned bytes from the selected data actually normalized.
 
