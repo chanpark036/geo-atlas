@@ -74,6 +74,8 @@ Reports are written to `.data/history/reports/latest.json`. The [historical pipe
 
 `accuracy` writes a separate `accuracy.json` report comparing MTA arrival-field timestamps with inferred feed-reported stop windows. It includes mean/median discrepancy, bias, variance and standard-deviation bounds, p95, timing uncertainty, forecast horizons and match coverage. MTA's arrival field can represent transit time at intermediate stops, so this proxy comparison does not establish physical arrival accuracy.
 
+The [recorded proxy results](docs/results/forecast-proxy-2026-11-05.md) preserve the per-route statistics and full aggregate JSON: 4,662 matched forecasts across 587 reported stop events, covering 1.24% of eligible forecasts in the selected sample. The results include source hashes, capture windows, uncertainty bounds and the independent review findings.
+
 A [recorded backfill benchmark](docs/benchmarks/history-sample.json) converted and analyzed 320,494 prediction observations from one G-train hour in 28.3 seconds, including scanning the 6.82 GB expanded daily archive. This is one local sample; network download time is excluded. The guide distinguishes scanned bytes from the selected data actually normalized.
 
 ## Code formatting
